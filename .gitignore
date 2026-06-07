@@ -1,0 +1,33 @@
+# Environment
+.env
+*.env
+
+# Data (Kaggle CSVs can be gigabytes)
+data/raw/
+data/processed/
+
+# Model artifacts (tracked by MLflow, not git)
+*.pkl
+*.joblib
+*.bin
+mlruns/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
