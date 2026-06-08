@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.models.db import init_db
 from app.routers import health, predict
 
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
     logger.info("Credit Risk API starting up")
+    init_db()
     yield
     logger.info("Credit Risk API shutting down")
 

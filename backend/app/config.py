@@ -1,8 +1,11 @@
 import logging
+from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
@@ -17,8 +20,9 @@ class Settings(BaseSettings):
     model_path: str = "/app/model/model.pkl"
 
     class Config:
-        env_file = ".env"
+        env_file = str(BASE_DIR / ".env")
         case_sensitive = False
+        extra = "ignore"
 
 
 settings = Settings()
