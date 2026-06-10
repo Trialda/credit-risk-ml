@@ -2,8 +2,9 @@
 .env
 *.env
 
-# ML venv
+# ML
 ml/.venv/
+mlruns/
 
 # Data (Kaggle CSVs can be gigabytes)
 data/raw/
