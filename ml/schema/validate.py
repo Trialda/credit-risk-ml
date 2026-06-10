@@ -60,7 +60,7 @@ def _check_missing_features(
     missing = set(all_features.keys()) - set(df.columns)
     if missing:
         raise ValueError(
-            f"Feature contract violated — missing features: {missing}"
+            f"Feature contract violated, missing features: {missing}"
         )
 
 

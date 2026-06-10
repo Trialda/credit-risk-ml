@@ -65,7 +65,7 @@ def _ensure_schema(engine) -> None:
 def _ingest_table(engine, table_name: str, csv_path: Path) -> None:
     """Load a single CSV file into a Postgres table.
 
-    Drops and recreates the table on each run — ingestion is idempotent.
+    Drops and recreates the table on each run, ingestion is idempotent.
     Column names are lowercased for consistency.
 
     Args:
