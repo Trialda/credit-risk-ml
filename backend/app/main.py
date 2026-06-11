@@ -3,7 +3,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import make_asgi_app
 
+from app.metrics import MODEL_LOADED
 from app.models.db import init_db
 from app.routers import explain, health, predict
 from app.services.explainer import load_explainer
@@ -21,7 +23,9 @@ async def lifespan(app: FastAPI):
     try:
         load_model()
         load_explainer()
+        MODEL_LOADED.set(1)
     except RuntimeError as e:
+        MODEL_LOADED.set(0)
         logger.warning("Model not available at startup: %s", e)
         logger.warning("Predictions will fail until model is loaded")
     yield
@@ -41,6 +45,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 app.include_router(health.router)
 app.include_router(predict.router)

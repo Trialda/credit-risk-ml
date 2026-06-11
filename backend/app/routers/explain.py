@@ -6,6 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.metrics import EXPLANATION_LATENCY, REQUEST_COUNT
 from app.models.db import InferenceLog, get_db
 from app.models.schemas import ExplainRequest, ExplainResponse
 from app.services.explainer import explain
@@ -40,13 +41,17 @@ def explain_prediction(
     try:
         risk_score = predict(features)
         shap_features, base_value = explain(features)
+        REQUEST_COUNT.labels(endpoint="/explain", status="success").inc()
     except ValueError as e:
+        REQUEST_COUNT.labels(endpoint="/explain", status="error").inc()
         raise HTTPException(status_code=422, detail=str(e))
     except RuntimeError as e:
+        REQUEST_COUNT.labels(endpoint="/explain", status="error").inc()
         logger.error("Model or explainer error: %s", e)
         raise HTTPException(status_code=503, detail="Model unavailable")
 
     latency_ms = (time.monotonic() - start_time) * 1000
+    EXPLANATION_LATENCY.observe(latency_ms / 1000)
 
     _log_inference(
         db=db,
