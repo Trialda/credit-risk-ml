@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,11 @@ class Settings(BaseSettings):
     model_artifact_path: str = str(PROJECT_ROOT / "model" / "model.pkl")
     random_seed: int = 42
 
-    class Config:
-        env_file = str(PROJECT_ROOT / ".env")
-        case_sensitive = False
-        extra = "ignore"
-
+    model_config = SettingsConfigDict(
+        env_file=str(PROJECT_ROOT / ".env"),
+        case_sensitive=False,
+        extra="ignore",
+        protected_namespaces=("settings_",),
+    )
 
 settings = Settings()
