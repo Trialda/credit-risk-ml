@@ -5,7 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.models.db import init_db
-from app.routers import health, predict
+from app.routers import explain, health, predict
+from app.services.explainer import load_explainer
+from app.services.predictor import load_model
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,6 +18,12 @@ async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
     logger.info("Credit Risk API starting up")
     init_db()
+    try:
+        load_model()
+        load_explainer()
+    except RuntimeError as e:
+        logger.warning("Model not available at startup: %s", e)
+        logger.warning("Predictions will fail until model is loaded")
     yield
     logger.info("Credit Risk API shutting down")
 
@@ -23,7 +31,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Credit Risk API",
     description="Credit default risk prediction service.",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -36,3 +44,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(predict.router)
+app.include_router(explain.router)

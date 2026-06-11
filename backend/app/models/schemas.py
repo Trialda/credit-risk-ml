@@ -1,3 +1,4 @@
+from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -36,3 +37,46 @@ class PredictResponse(BaseModel):
 
     request_id: str
     risk_score: float = Field(..., ge=0.0, le=1.0)
+
+
+class ExplainRequest(BaseModel):
+    """Request body for the explain endpoint.
+
+    Attributes:
+        request_id: UUID of a prior prediction to explain.
+        features: The same feature payload sent to /predict.
+    """
+
+    request_id: str
+    features: PredictRequest
+
+
+class ShapFeature(BaseModel):
+    """A single feature's SHAP contribution.
+
+    Attributes:
+        feature: Feature name.
+        value: Raw feature value.
+        shap_value: SHAP contribution to the prediction.
+    """
+
+    feature: str
+    value: Any
+    shap_value: float
+
+
+class ExplainResponse(BaseModel):
+    """Response returned after an explanation request.
+
+    Attributes:
+        request_id: UUID correlating this explanation to a prediction.
+        risk_score: Predicted probability of default.
+        base_value: Model base value (mean prediction over training set).
+        shap_features: Per-feature SHAP contributions sorted by
+            absolute impact, descending.
+    """
+
+    request_id: str
+    risk_score: float = Field(..., ge=0.0, le=1.0)
+    base_value: float
+    shap_features: list[ShapFeature]

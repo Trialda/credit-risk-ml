@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.db import InferenceLog, get_db
 from app.models.schemas import PredictRequest, PredictResponse
+from app.services.predictor import predict as run_predict
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,13 @@ def predict(
     request_id = str(uuid.uuid4())
     start_time = time.monotonic()
 
-    risk_score = _toy_model(request.model_dump())
+    try:
+        risk_score = run_predict(request.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except RuntimeError as e:
+        logger.error("Model error: %s", e)
+        raise HTTPException(status_code=503, detail="Model unavailable")
 
     latency_ms = (time.monotonic() - start_time) * 1000
 
