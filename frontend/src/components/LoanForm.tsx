@@ -1,8 +1,13 @@
 import { useState } from "react";
-import { predict, type PredictRequest, type PredictResponse } from "../api/client";
+import {
+  explainPrediction,
+  predict,
+  type ExplainResponse,
+  type PredictRequest,
+} from "../api/client";
 
 interface Props {
-  onResult: (result: PredictResponse) => void;
+  onResult: (result: ExplainResponse) => void;
 }
 
 const defaultForm: PredictRequest = {
@@ -28,11 +33,15 @@ export default function LoanForm({ onResult }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const result = await predict(form);
-      onResult(result);
+      const prediction = await predict(form);
+      const explanation = await explainPrediction(
+        prediction.request_id,
+        form
+      );
+      onResult(explanation);
     } catch (err) {
-      console.error("API Error:", err);
-      setError("Prediction failed. Is the backend running?");
+      console.error("API error:", err);
+      setError("Request failed. Is the backend running?");
     } finally {
       setLoading(false);
     }
@@ -43,14 +52,17 @@ export default function LoanForm({ onResult }: Props) {
       <h2>Loan Application</h2>
 
       {Object.entries(form).map(([key, value]) => (
-        <div key={key}>
-          <label htmlFor={key}>{key}</label>
+        <div key={key} style={{ marginBottom: "0.75rem" }}>
+          <label htmlFor={key} style={{ display: "block", fontSize: "0.85rem" }}>
+            {key}
+          </label>
           <input
             id={key}
             name={key}
             type="number"
             value={value}
             onChange={handleChange}
+            style={{ width: "100%", padding: "0.4rem" }}
           />
         </div>
       ))}
@@ -58,7 +70,7 @@ export default function LoanForm({ onResult }: Props) {
       {error && <p style={{ color: "red" }}>{error}</p>}
 
       <button type="submit" disabled={loading}>
-        {loading ? "Predicting..." : "Get Risk Score"}
+        {loading ? "Analysing..." : "Get Risk Score"}
       </button>
     </form>
   );
