@@ -29,12 +29,13 @@ def load_model() -> None:
     if not model_path.exists():
         raise RuntimeError(
             f"Model artifact not found at {model_path}. "
-            f"Run ml/train.py and ml/export.py first."
+            f"Run ml/train.py first."
         )
 
     try:
+        import cloudpickle
         with open(model_path, "rb") as f:
-            _model = pickle.load(f)
+            _model = cloudpickle.load(f)
         logger.info("Model loaded from %s", model_path)
     except Exception as e:
         raise RuntimeError(f"Failed to load model artifact: {e}") from e

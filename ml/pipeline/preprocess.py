@@ -74,32 +74,45 @@ TARGET = "target"
 
 
 def _cast_categoricals(X: pd.DataFrame) -> pd.DataFrame:
-    """Cast categorical columns to pandas category dtype.
+    """Cast categorical columns to category dtype and ensure
+    numerical columns are float.
 
     Args:
         X: Input DataFrame.
 
     Returns:
-        DataFrame with categorical columns cast to category dtype.
+        DataFrame with correct dtypes for LightGBM.
     """
     X = X.copy()
+
+    for col in NUMERICAL_FEATURES:
+        if col in X.columns:
+            X[col] = pd.to_numeric(X[col], errors="coerce")
+
     for col in CATEGORICAL_FEATURES:
         if col in X.columns:
             X[col] = X[col].astype("category")
+
     return X
 
 
 def build_preprocessor() -> Pipeline:
-    """Build the sklearn preprocessing pipeline.
+    """Build the sklearn preprocessing pipeline."""
+    
+    numerical = NUMERICAL_FEATURES.copy()
+    categorical = CATEGORICAL_FEATURES.copy()
 
-    Numerical features: passed through as-is, LightGBM handles nulls.
-    Categorical features: cast to pandas category dtype for LightGBM
-    native categorical support.
+    def cast_fn(X: pd.DataFrame) -> pd.DataFrame:
+        X = X.copy()
+        for col in numerical:
+            if col in X.columns:
+                X[col] = pd.to_numeric(X[col], errors="coerce")
+        for col in categorical:
+            if col in X.columns:
+                X[col] = X[col].astype("category")
+        return X
 
-    Returns:
-        Unfitted Pipeline.
-    """
-    caster = FunctionTransformer(_cast_categoricals, validate=False)
+    caster = FunctionTransformer(cast_fn, validate=False)
     caster.set_output(transform="pandas")
 
     return Pipeline([

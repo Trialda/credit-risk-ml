@@ -58,6 +58,7 @@ def train() -> None:
         6. Evaluate and log metrics to MLflow
         7. Save model artifact
     """
+    logger.info("Using database URL: %s", settings.get_database_url())
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
     mlflow.set_experiment(EXPERIMENT_NAME)
 
@@ -65,10 +66,10 @@ def train() -> None:
         logger.info("Starting training run")
 
         logger.info("Step 1: Ingesting raw data")
-        ingest_all(DATA_DIR)
+        ingest_all(DATA_DIR, skip_if_exists=True)
 
         logger.info("Step 2: Building feature table")
-        features = build_feature_table()
+        features = build_feature_table(skip_if_exists=True)
 
         logger.info("Step 3: Validating feature schema")
         pandas_df = features.to_pandas()
@@ -157,23 +158,24 @@ def _get_early_stopping_callback():
 def _save_artifact(model: Pipeline) -> None:
     """Serialize the fitted pipeline to disk and log to MLflow.
 
-    The pipeline contains both the preprocessor and the model, 
-    serializing them together guarantees training-serving symmetry.
+    Uses cloudpickle instead of pickle to avoid module path
+    dependencies when unpickling in the backend container.
 
     Args:
         model: Fitted sklearn Pipeline to serialize.
     """
-    import pickle
+    import cloudpickle
 
     artifact_path = Path(settings.model_artifact_path)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(artifact_path, "wb") as f:
-        pickle.dump(model, f)
-
-    mlflow.sklearn.log_model(model, artifact_path="model")
+        cloudpickle.dump(model, f)
 
     logger.info("Model artifact saved to %s", artifact_path)
+
+    mlflow.sklearn.log_model(model, artifact_path="model")
+    logger.info("Model artifact logged to MLflow")
 
 
 if __name__ == "__main__":

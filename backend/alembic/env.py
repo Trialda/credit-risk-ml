@@ -24,6 +24,7 @@ def get_database_url() -> str:
         ValueError: If DATABASE_URL is not set.
     """
     url = os.getenv("DATABASE_URL")
+    print(f"DEBUG get_database_url: {url}")
     if not url:
         env_path = Path(__file__).resolve().parent.parent.parent / ".env"
         if env_path.exists():

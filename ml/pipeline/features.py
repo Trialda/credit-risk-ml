@@ -12,15 +12,36 @@ FEATURES_SCHEMA = "features"
 FEATURES_TABLE = "feature_table"
 
 
-def build_feature_table() -> pl.DataFrame:
+def build_feature_table(skip_if_exists: bool = False) -> pl.DataFrame:
     """Build the flat feature table by joining all auxiliary tables.
 
     Reads from the raw schema, aggregates each auxiliary table,
     joins onto application_train, and writes to the features schema.
-
+    
+    Args:
+        skip_if_exists: If True, load existing feature table from
+            Postgres instead of rebuilding. Useful during development
+            to skip expensive recomputation.
+    
     Returns:
         Feature DataFrame with one row per applicant.
     """
+    if skip_if_exists and _feature_table_exists():
+        logger.info(
+            "Feature table already exists, loading from features.%s",
+            FEATURES_TABLE,
+        )
+        engine = create_engine(settings.get_database_url())
+        df = pl.read_database(
+            query=f"SELECT * FROM {FEATURES_SCHEMA}.{FEATURES_TABLE}",
+            connection=engine.connect(),
+        )
+        logger.info(
+            "Loaded feature table: %s rows, %s columns",
+            f"{len(df):,}",
+            len(df.columns),
+        )
+        return df
     logger.info("Building feature table")
 
     application = _load_application()
@@ -52,228 +73,241 @@ def build_feature_table() -> pl.DataFrame:
     return features
 
 
+def _feature_table_exists() -> bool:
+    """Check if the feature table exists and has rows.
+
+    Returns:
+        True if the feature table exists and contains at least one row.
+    """
+    from sqlalchemy import text
+    engine = create_engine(settings.get_database_url())
+    with engine.connect() as conn:
+        result = conn.execute(text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = :s AND table_name = :t)"
+        ), {"s": FEATURES_SCHEMA, "t": FEATURES_TABLE})
+        if not result.scalar():
+            return False
+        result = conn.execute(
+            text(f"SELECT COUNT(*) FROM {FEATURES_SCHEMA}.{FEATURES_TABLE}")
+        )
+        return result.scalar() > 0
+    
+    
 def _load_application() -> pl.DataFrame:
-    """Load application_train from the raw schema.
+    """Load application_train with derived features from SQL.
 
     Returns:
         Application DataFrame with basic derived features added.
     """
-    engine = create_engine(settings.database_url)
-
-    df = pl.read_database(
-        query="SELECT * FROM raw.application_train",
-        connection=engine.connect(),
-    )
-
-    df = df.with_columns([
-        (pl.col("amt_credit") / pl.col("amt_income_total"))
-        .alias("credit_income_ratio"),
-
-        (pl.col("amt_annuity") / pl.col("amt_income_total"))
-        .alias("annuity_income_ratio"),
-
-        (pl.col("amt_credit") / pl.col("amt_annuity"))
-        .alias("credit_term"),
-
-        (pl.col("days_birth") / -365)
-        .alias("age_years"),
-
-        (pl.col("days_employed") / -365)
-        .alias("employment_years"),
-
-        (pl.col("days_employed") / pl.col("days_birth"))
-        .alias("employment_to_age_ratio"),
-    ])
-
+    query = """
+        SELECT
+            *,
+            amt_credit::DOUBLE PRECISION /
+                NULLIF(amt_income_total::DOUBLE PRECISION, 0)
+                AS credit_income_ratio,
+            amt_annuity::DOUBLE PRECISION /
+                NULLIF(amt_income_total::DOUBLE PRECISION, 0)
+                AS annuity_income_ratio,
+            amt_credit::DOUBLE PRECISION /
+                NULLIF(amt_annuity::DOUBLE PRECISION, 0)
+                AS credit_term,
+            days_birth::DOUBLE PRECISION / -365
+                AS age_years,
+            days_employed::DOUBLE PRECISION / -365
+                AS employment_years,
+            days_employed::DOUBLE PRECISION /
+                NULLIF(days_birth::DOUBLE PRECISION, 0)
+                AS employment_to_age_ratio
+        FROM raw.application_train
+    """
+    engine = create_engine(settings.get_database_url())
+    df = pl.read_database(query=query, connection=engine.connect())
     logger.info("Loaded application_train: %s rows", f"{len(df):,}")
     return df
 
 
 def _aggregate_bureau() -> pl.DataFrame:
-    """Aggregate bureau credit history per applicant.
+    """Aggregate bureau credit history per applicant using SQL.
 
     Returns:
         DataFrame with one row per applicant, keyed on sk_id_curr.
     """
-    engine = create_engine(settings.database_url)
-
-    df = pl.read_database(
-        query="SELECT * FROM raw.bureau",
-        connection=engine.connect(),
-    )
-
-    agg = df.group_by("sk_id_curr").agg([
-        pl.len().alias("bureau_count"),
-        pl.col("days_credit").mean().alias("bureau_mean_days_credit"),
-        pl.col("days_credit_enddate").mean().alias("bureau_mean_enddate"),
-        pl.col("amt_credit_sum").sum().alias("bureau_total_credit"),
-        pl.col("amt_credit_sum_debt").sum().alias("bureau_total_debt"),
-        pl.col("amt_credit_sum_overdue").mean().alias("bureau_mean_overdue"),
-        pl.col("credit_day_overdue").max().alias("bureau_max_overdue_days"),
-        (pl.col("credit_active") == "Active")
-        .sum().alias("bureau_active_count"),
-        (pl.col("credit_active") == "Closed")
-        .sum().alias("bureau_closed_count"),
-    ])
-
-    logger.info("Bureau aggregation: %s rows", f"{len(agg):,}")
-    return agg
+    query = """
+        SELECT
+            sk_id_curr,
+            COUNT(*) AS bureau_count,
+            AVG(days_credit) AS bureau_mean_days_credit,
+            AVG(days_credit_enddate) AS bureau_mean_enddate,
+            SUM(amt_credit_sum) AS bureau_total_credit,
+            SUM(amt_credit_sum_debt) AS bureau_total_debt,
+            AVG(amt_credit_sum_overdue) AS bureau_mean_overdue,
+            MAX(credit_day_overdue) AS bureau_max_overdue_days,
+            SUM(CASE WHEN credit_active = 'Active' THEN 1 ELSE 0 END)
+                AS bureau_active_count,
+            SUM(CASE WHEN credit_active = 'Closed' THEN 1 ELSE 0 END)
+                AS bureau_closed_count
+        FROM raw.bureau
+        GROUP BY sk_id_curr
+    """
+    engine = create_engine(settings.get_database_url())
+    df = pl.read_database(query=query, connection=engine.connect())
+    logger.info("Bureau aggregation: %s rows", f"{len(df):,}")
+    return df
 
 
 def _aggregate_bureau_balance() -> pl.DataFrame:
-    """Aggregate bureau balance history, joining through bureau.
+    """Aggregate bureau balance history using SQL.
 
     Returns:
         DataFrame with one row per applicant, keyed on sk_id_curr.
     """
-    engine = create_engine(settings.database_url)
-
-    bureau = pl.read_database(
-        query="SELECT sk_id_curr, sk_id_bureau FROM raw.bureau",
-        connection=engine.connect(),
-    )
-
-    balance = pl.read_database(
-        query="SELECT * FROM raw.bureau_balance",
-        connection=engine.connect(),
-    )
-
-    df = balance.join(bureau, on="sk_id_bureau", how="left")
-
-    agg = df.group_by("sk_id_curr").agg([
-        pl.len().alias("bureau_bal_count"),
-        (pl.col("status") == "C")
-        .sum().alias("bureau_bal_closed_count"),
-        (pl.col("status") == "X")
-        .sum().alias("bureau_bal_unknown_count"),
-        pl.col("months_balance").min().alias("bureau_bal_months_min"),
-    ])
-
-    logger.info("Bureau balance aggregation: %s rows", f"{len(agg):,}")
-    return agg
+    query = """
+        SELECT
+            b.sk_id_curr,
+            COUNT(*) AS bureau_bal_count,
+            SUM(CASE WHEN bb.status = 'C' THEN 1 ELSE 0 END)
+                AS bureau_bal_closed_count,
+            SUM(CASE WHEN bb.status = 'X' THEN 1 ELSE 0 END)
+                AS bureau_bal_unknown_count,
+            MIN(bb.months_balance) AS bureau_bal_months_min
+        FROM raw.bureau_balance bb
+        JOIN raw.bureau b ON bb.sk_id_bureau = b.sk_id_bureau
+        GROUP BY b.sk_id_curr
+    """
+    engine = create_engine(settings.get_database_url())
+    df = pl.read_database(query=query, connection=engine.connect())
+    logger.info("Bureau balance aggregation: %s rows", f"{len(df):,}")
+    return df
 
 
 def _aggregate_previous_applications() -> pl.DataFrame:
-    """Aggregate previous Home Credit applications per applicant.
+    """Aggregate previous applications using SQL.
 
     Returns:
         DataFrame with one row per applicant, keyed on sk_id_curr.
     """
-    engine = create_engine(settings.database_url)
-
-    df = pl.read_database(
-        query="SELECT * FROM raw.previous_application",
-        connection=engine.connect(),
-    )
-
-    agg = df.group_by("sk_id_curr").agg([
-        pl.len().alias("prev_app_count"),
-        (pl.col("name_contract_status") == "Approved")
-        .sum().alias("prev_app_approved_count"),
-        (pl.col("name_contract_status") == "Refused")
-        .sum().alias("prev_app_refused_count"),
-        pl.col("amt_credit").mean().alias("prev_app_mean_credit"),
-        pl.col("amt_down_payment").mean().alias("prev_app_mean_down_payment"),
-        pl.col("days_decision").mean().alias("prev_app_mean_days_decision"),
-        pl.col("cnt_payment").mean().alias("prev_app_mean_term"),
-    ])
-
-    logger.info("Previous application aggregation: %s rows", f"{len(agg):,}")
-    return agg
+    query = """
+        SELECT
+            sk_id_curr,
+            COUNT(*) AS prev_app_count,
+            SUM(CASE WHEN name_contract_status = 'Approved' THEN 1 ELSE 0 END)
+                AS prev_app_approved_count,
+            SUM(CASE WHEN name_contract_status = 'Refused' THEN 1 ELSE 0 END)
+                AS prev_app_refused_count,
+            AVG(amt_credit::DOUBLE PRECISION) AS prev_app_mean_credit,
+            AVG(amt_down_payment::DOUBLE PRECISION)
+                AS prev_app_mean_down_payment,
+            AVG(days_decision::DOUBLE PRECISION)
+                AS prev_app_mean_days_decision,
+            AVG(cnt_payment::DOUBLE PRECISION) AS prev_app_mean_term
+        FROM raw.previous_application
+        GROUP BY sk_id_curr
+    """
+    engine = create_engine(settings.get_database_url())
+    df = pl.read_database(query=query, connection=engine.connect())
+    logger.info("Previous application aggregation: %s rows", f"{len(df):,}")
+    return df
 
 
 def _aggregate_installments() -> pl.DataFrame:
-    """Aggregate installment payment history per applicant.
+    """Aggregate installment payment history using SQL.
 
     Returns:
         DataFrame with one row per applicant, keyed on sk_id_curr.
     """
-    engine = create_engine(settings.database_url)
-
-    df = pl.read_database(
-        query="SELECT * FROM raw.installments_payments",
-        connection=engine.connect(),
-    )
-
-    df = df.with_columns([
-        (pl.col("amt_instalment") - pl.col("amt_payment"))
-        .alias("payment_diff"),
-        (pl.col("days_instalment") - pl.col("days_entry_payment"))
-        .alias("days_late"),
-    ])
-
-    agg = df.group_by("sk_id_curr").agg([
-        pl.len().alias("installments_count"),
-        pl.col("payment_diff").mean().alias("installments_mean_payment_diff"),
-        pl.col("payment_diff").max().alias("installments_max_payment_diff"),
-        pl.col("days_late").mean().alias("installments_mean_days_late"),
-        pl.col("days_late").max().alias("installments_max_days_late"),
-        (pl.col("days_late") > 0).sum().alias("installments_late_count"),
-    ])
-
-    logger.info("Installments aggregation: %s rows", f"{len(agg):,}")
-    return agg
+    query = """
+        SELECT
+            sk_id_curr,
+            COUNT(*) AS installments_count,
+            AVG(
+                amt_instalment::DOUBLE PRECISION -
+                amt_payment::DOUBLE PRECISION
+            ) AS installments_mean_payment_diff,
+            MAX(
+                amt_instalment::DOUBLE PRECISION -
+                amt_payment::DOUBLE PRECISION
+            ) AS installments_max_payment_diff,
+            AVG(
+                days_instalment::DOUBLE PRECISION -
+                days_entry_payment::DOUBLE PRECISION
+            ) AS installments_mean_days_late,
+            MAX(
+                days_instalment::DOUBLE PRECISION -
+                days_entry_payment::DOUBLE PRECISION
+            ) AS installments_max_days_late,
+            SUM(
+                CASE WHEN days_instalment::DOUBLE PRECISION -
+                    days_entry_payment::DOUBLE PRECISION > 0
+                THEN 1 ELSE 0 END
+            ) AS installments_late_count
+        FROM raw.installments_payments
+        GROUP BY sk_id_curr
+    """
+    engine = create_engine(settings.get_database_url())
+    df = pl.read_database(query=query, connection=engine.connect())
+    logger.info("Installments aggregation: %s rows", f"{len(df):,}")
+    return df
 
 
 def _aggregate_credit_card() -> pl.DataFrame:
-    """Aggregate credit card balance history per applicant.
+    """Aggregate credit card balance history using SQL.
 
     Returns:
         DataFrame with one row per applicant, keyed on sk_id_curr.
     """
-    engine = create_engine(settings.database_url)
-
-    df = pl.read_database(
-        query="SELECT * FROM raw.credit_card_balance",
-        connection=engine.connect(),
-    )
-
-    df = df.with_columns([
-        (pl.col("amt_balance") / pl.col("amt_credit_limit_actual")
-         .replace(0, None))
-        .alias("credit_utilisation"),
-    ])
-
-    agg = df.group_by("sk_id_curr").agg([
-        pl.len().alias("credit_card_count"),
-        pl.col("amt_balance").mean().alias("credit_card_mean_balance"),
-        pl.col("amt_balance").max().alias("credit_card_max_balance"),
-        pl.col("credit_utilisation").mean()
-        .alias("credit_card_mean_utilisation"),
-        pl.col("credit_utilisation").max()
-        .alias("credit_card_max_utilisation"),
-        pl.col("amt_drawings_total").sum()
-        .alias("credit_card_total_drawings"),
-    ])
-
-    logger.info("Credit card aggregation: %s rows", f"{len(agg):,}")
-    return agg
+    query = """
+        SELECT
+            sk_id_curr,
+            COUNT(*) AS credit_card_count,
+            AVG(amt_balance) AS credit_card_mean_balance,
+            MAX(amt_balance) AS credit_card_max_balance,
+            AVG(
+                CASE
+                    WHEN amt_credit_limit_actual = 0 THEN NULL
+                    ELSE amt_balance / amt_credit_limit_actual
+                END
+            ) AS credit_card_mean_utilisation,
+            MAX(
+                CASE
+                    WHEN amt_credit_limit_actual = 0 THEN NULL
+                    ELSE amt_balance / amt_credit_limit_actual
+                END
+            ) AS credit_card_max_utilisation,
+            SUM(amt_drawings_current) AS credit_card_total_drawings
+        FROM raw.credit_card_balance
+        GROUP BY sk_id_curr
+    """
+    engine = create_engine(settings.get_database_url())
+    df = pl.read_database(query=query, connection=engine.connect())
+    logger.info("Credit card aggregation: %s rows", f"{len(df):,}")
+    return df
 
 
 def _aggregate_pos_cash() -> pl.DataFrame:
-    """Aggregate POS and cash loan balance history per applicant.
+    """Aggregate POS and cash loan balance history using SQL.
 
     Returns:
         DataFrame with one row per applicant, keyed on sk_id_curr.
     """
-    engine = create_engine(settings.database_url)
-
-    df = pl.read_database(
-        query="SELECT * FROM raw.pos_cash_balance",
-        connection=engine.connect(),
-    )
-
-    agg = df.group_by("sk_id_curr").agg([
-        pl.len().alias("pos_cash_count"),
-        pl.col("cnt_instalment").mean().alias("pos_cash_mean_instalment"),
-        pl.col("sk_dpd").mean().alias("pos_cash_mean_dpd"),
-        pl.col("sk_dpd").max().alias("pos_cash_max_dpd"),
-        pl.col("sk_dpd_def").mean().alias("pos_cash_mean_dpd_def"),
-        (pl.col("sk_dpd") > 0).sum().alias("pos_cash_late_count"),
-    ])
-
-    logger.info("POS cash aggregation: %s rows", f"{len(agg):,}")
-    return agg
+    query = """
+        SELECT
+            sk_id_curr,
+            COUNT(*) AS pos_cash_count,
+            AVG(cnt_instalment::DOUBLE PRECISION)
+                AS pos_cash_mean_instalment,
+            AVG(sk_dpd::DOUBLE PRECISION) AS pos_cash_mean_dpd,
+            MAX(sk_dpd::DOUBLE PRECISION) AS pos_cash_max_dpd,
+            AVG(sk_dpd_def::DOUBLE PRECISION) AS pos_cash_mean_dpd_def,
+            SUM(CASE WHEN sk_dpd::DOUBLE PRECISION > 0 THEN 1 ELSE 0 END)
+                AS pos_cash_late_count
+        FROM raw.pos_cash_balance
+        GROUP BY sk_id_curr
+    """
+    engine = create_engine(settings.get_database_url())
+    df = pl.read_database(query=query, connection=engine.connect())
+    logger.info("POS cash aggregation: %s rows", f"{len(df):,}")
+    return df
 
 
 def _join_all(
@@ -324,7 +358,7 @@ def _write_features(df: pl.DataFrame) -> None:
     Args:
         df: Flat feature DataFrame with one row per applicant.
     """
-    engine = create_engine(settings.database_url)
+    engine = create_engine(settings.get_database_url())
 
     with engine.connect() as conn:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS features"))
@@ -332,7 +366,7 @@ def _write_features(df: pl.DataFrame) -> None:
 
     df.write_database(
         table_name=f"{FEATURES_SCHEMA}.{FEATURES_TABLE}",
-        connection=str(settings.database_url),
+        connection=str(settings.get_database_url()),
         if_table_exists="replace",
         engine="sqlalchemy",
         engine_options={

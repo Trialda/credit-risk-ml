@@ -1,3 +1,4 @@
+import os
 import logging
 from pathlib import Path
 
@@ -24,7 +25,7 @@ class Settings(BaseSettings):
     """
 
     database_url: str
-    mlflow_tracking_uri: str = "http://localhost:5000"
+    mlflow_tracking_uri: str = "http://mlflow:5000"
     model_artifact_path: str = str(PROJECT_ROOT / "model" / "model.pkl")
     random_seed: int = 42
 
@@ -34,5 +35,25 @@ class Settings(BaseSettings):
         extra="ignore",
         protected_namespaces=("settings_",),
     )
+
+    # def get_database_url(self) -> str:
+    #     """Return local database URL if available, else default.
+
+    #     When running locally, DATABASE_URL_LOCAL uses localhost.
+    #     When running inside Docker, DATABASE_URL uses db hostname.
+
+    #     Returns:
+    #         PostgreSQL connection string appropriate for current context.
+    #     """
+    #     return os.getenv("DATABASE_URL_LOCAL") or self.database_url
+    def get_database_url(self) -> str:
+        """Return local database URL if available, else default."""
+        load_dotenv(PROJECT_ROOT / ".env")
+        local_url = os.getenv("DATABASE_URL_LOCAL")
+        logger.info(
+            "DATABASE_URL_LOCAL from env: %s",
+            local_url or "not set"
+        )
+        return local_url or self.database_url
 
 settings = Settings()
