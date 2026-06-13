@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import DateTime, Float, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -24,6 +25,7 @@ class InferenceLog(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     features_json: Mapped[str] = mapped_column(Text, nullable=False)
     risk_score: Mapped[float] = mapped_column(Float, nullable=False)
+    shap_values_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
 
 

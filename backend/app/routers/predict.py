@@ -7,8 +7,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.metrics import MODEL_LOADED, PREDICTION_LATENCY, PREDICTION_SCORE, REQUEST_COUNT
 from app.models.db import InferenceLog, get_db
 from app.models.schemas import PredictRequest, PredictResponse
+from app.services.predictor import predict as run_predict
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +48,23 @@ def predict(
     request_id = str(uuid.uuid4())
     start_time = time.monotonic()
 
-    risk_score = _toy_model(request.model_dump())
+    try:
+        risk_score = run_predict(request.model_dump())
+        REQUEST_COUNT.labels(endpoint="/predict", status="success").inc()
+    except ValueError as e:
+        REQUEST_COUNT.labels(endpoint="/predict", status="error").inc()
+        raise HTTPException(status_code=422, detail=str(e))
+    except RuntimeError as e:
+        REQUEST_COUNT.labels(endpoint="/predict", status="error").inc()
+        logger.error("Model error: %s", e)
+        raise HTTPException(status_code=503, detail="Model unavailable")
 
     latency_ms = (time.monotonic() - start_time) * 1000
+    latency_seconds = latency_ms / 1000
 
+    PREDICTION_LATENCY.observe(latency_seconds)
+    PREDICTION_SCORE.observe(risk_score)
+    
     _log_inference(
         db=db,
         request_id=request_id,

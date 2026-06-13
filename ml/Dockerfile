@@ -10,8 +10,8 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install -r requirements.txt
 
-COPY . .
+COPY . ./ml/
 
-EXPOSE 8000
+ENV PYTHONPATH=/app
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["python", "-m", "ml.train"]

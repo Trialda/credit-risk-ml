@@ -7,10 +7,57 @@ logger = logging.getLogger(__name__)
 VALID_PAYLOAD = {
     "amt_credit": 500000.0,
     "amt_income_total": 150000.0,
+    "amt_annuity": 24700.0,
+    "amt_goods_price": 450000.0,
     "days_birth": -12000,
     "days_employed": -2000,
+    "days_registration": -5000.0,
+    "days_id_publish": -3000.0,
     "cnt_children": 0,
-    "amt_annuity": 24700.0,
+    "cnt_fam_members": 2.0,
+    "credit_income_ratio": 3.33,
+    "annuity_income_ratio": 0.16,
+    "credit_term": 20.24,
+    "age_years": 32.87,
+    "employment_years": 5.47,
+    "employment_to_age_ratio": 0.166,
+    "name_contract_type": "Cash loans",
+    "code_gender": "M",
+    "name_income_type": "Working",
+    "name_education_type": "Secondary / secondary special",
+    "name_family_status": "Married",
+    "name_housing_type": "House / apartment",
+    "occupation_type": "missing",
+    "organization_type": "Business Entity Type 3",
+    "bureau_count": 0.0,
+    "bureau_mean_days_credit": 0.0,
+    "bureau_total_credit": 0.0,
+    "bureau_total_debt": 0.0,
+    "bureau_mean_overdue": 0.0,
+    "bureau_max_overdue_days": 0.0,
+    "bureau_active_count": 0.0,
+    "bureau_closed_count": 0.0,
+    "bureau_bal_count": 0.0,
+    "bureau_bal_closed_count": 0.0,
+    "prev_app_count": 0.0,
+    "prev_app_approved_count": 0.0,
+    "prev_app_refused_count": 0.0,
+    "prev_app_mean_credit": 0.0,
+    "prev_app_mean_term": 0.0,
+    "installments_count": 0.0,
+    "installments_mean_payment_diff": 0.0,
+    "installments_max_payment_diff": 0.0,
+    "installments_mean_days_late": 0.0,
+    "installments_max_days_late": 0.0,
+    "installments_late_count": 0.0,
+    "credit_card_count": 0.0,
+    "credit_card_mean_balance": 0.0,
+    "credit_card_mean_utilisation": 0.0,
+    "credit_card_max_utilisation": 0.0,
+    "pos_cash_count": 0.0,
+    "pos_cash_mean_dpd": 0.0,
+    "pos_cash_max_dpd": 0.0,
+    "pos_cash_late_count": 0.0,
 }
 
 
@@ -49,7 +96,7 @@ def test_predict_logs_inference_to_database(client: TestClient, db_session) -> N
     )
 
     assert log_entry is not None
-    assert log_entry.risk_score == 0.42
+    assert 0.0 <= log_entry.risk_score <= 1.0
     assert log_entry.latency_ms > 0
 
 

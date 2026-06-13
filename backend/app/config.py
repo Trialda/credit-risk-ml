@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +19,12 @@ class Settings(BaseSettings):
     database_url: str
     model_path: str = "/app/model/model.pkl"
 
-    class Config:
-        env_file = str(BASE_DIR / ".env")
-        case_sensitive = False
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=str(BASE_DIR / ".env"),
+        case_sensitive=False,
+        extra="ignore",
+        protected_namespaces=("settings_",),
+    )
 
 
 settings = Settings()
