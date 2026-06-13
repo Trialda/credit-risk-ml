@@ -1,12 +1,17 @@
-import pytest
+import logging
+import os
 from unittest.mock import patch
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-import os
 
 from app.main import app
 from app.models.db import Base, get_db
+from app.models.schemas import ShapFeature
+
+logger = logging.getLogger(__name__)
 
 TEST_DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -40,6 +45,20 @@ def db_session():
     connection.close()
 
 
+def _mock_predict(features: dict) -> float:
+    """Return a fixed score for testing purposes."""
+    return 0.35
+
+
+def _mock_explain(features: dict):
+    """Return fixed SHAP values for testing purposes."""
+    shap_features = [
+        ShapFeature(feature="amt_credit", value=500000.0, shap_value=0.12),
+        ShapFeature(feature="days_birth", value=-12000, shap_value=-0.08),
+    ]
+    return shap_features, -0.5
+
+
 @pytest.fixture()
 def client(db_session):
     """Yield a FastAPI test client with DB and model dependencies overridden."""
@@ -49,14 +68,11 @@ def client(db_session):
         finally:
             pass
 
-    def mock_predict(features: dict) -> float:
-        """Return a fixed score for testing purposes."""
-        return 0.35
-
     app.dependency_overrides[get_db] = override_get_db
 
-    with patch("app.routers.predict.run_predict", side_effect=mock_predict), \
-         patch("app.routers.explain.predict", side_effect=mock_predict):
+    with patch("app.routers.predict.run_predict", side_effect=_mock_predict), \
+         patch("app.routers.explain.predict", side_effect=_mock_predict), \
+         patch("app.routers.explain.explain", side_effect=_mock_explain):
         with TestClient(app) as test_client:
             yield test_client
 
