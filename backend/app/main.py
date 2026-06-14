@@ -7,7 +7,7 @@ from prometheus_client import make_asgi_app
 
 from app.metrics import MODEL_LOADED
 from app.models.db import init_db
-from app.routers import enrich, explain, health, predict
+from app.routers import drift, enrich, explain, health, predict
 from app.services.explainer import load_explainer
 from app.services.predictor import load_model
 
@@ -57,3 +57,4 @@ app.include_router(health.router)
 app.include_router(predict.router)
 app.include_router(explain.router)
 app.include_router(enrich.router)
+app.include_router(drift.router)
