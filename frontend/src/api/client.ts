@@ -114,7 +114,6 @@ export async function predict(
 }
 
 export async function explainPrediction(
-  request_id: string,
   features: PredictRequest
 ): Promise<ExplainResponse> {
   /**
@@ -122,7 +121,6 @@ export async function explainPrediction(
    * Throws an AxiosError if the request fails.
    */
   const response = await apiClient.post<ExplainResponse>("/explain", {
-    request_id,
     features,
   });
   return response.data;

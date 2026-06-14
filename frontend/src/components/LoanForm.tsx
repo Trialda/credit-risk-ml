@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   explainPrediction,
-  predict,
   type ExplainResponse,
   type PredictRequest,
 } from "../api/client";
@@ -115,11 +114,7 @@ export default function LoanForm({ onResult }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const prediction = await predict(form);
-      const explanation = await explainPrediction(
-        prediction.request_id,
-        form
-      );
+      const explanation = await explainPrediction(form);
       onResult(explanation);
     } catch (err) {
       console.error("API error:", err);
