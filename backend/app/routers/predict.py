@@ -11,6 +11,7 @@ from app.metrics import MODEL_LOADED, PREDICTION_LATENCY, PREDICTION_SCORE, REQU
 from app.models.db import InferenceLog, get_db
 from app.models.schemas import PredictRequest, PredictResponse
 from app.services.predictor import predict as run_predict
+from app.services.pandera_validator import validate_features
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,11 @@ def predict(
     """
     request_id = request.state.request_id
     start_time = time.monotonic()
+
+    validation_error = validate_features(payload.model_dump())
+    if validation_error:
+        REQUEST_COUNT.labels(endpoint="/predict", status="error").inc()
+        raise HTTPException(status_code=422, detail=validation_error)
 
     try:
         risk_score = run_predict(payload.model_dump())
