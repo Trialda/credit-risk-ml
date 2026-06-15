@@ -32,3 +32,24 @@ MODEL_LOADED = Gauge(
     name="credit_risk_model_loaded",
     documentation="Whether the model is currently loaded (1=yes, 0=no)",
 )
+
+FEATURE_PSI = Gauge(
+    name="credit_risk_feature_psi",
+    documentation="PSI drift score per feature against training distribution",
+    labelnames=["feature"],
+)
+
+SCORE_PSI = Gauge(
+    name="credit_risk_score_psi",
+    documentation="PSI drift score for predicted risk scores",
+)
+
+SCORE_MEAN = Gauge(
+    name="credit_risk_score_mean",
+    documentation="Mean predicted risk score over recent inference window",
+)
+
+DRIFT_SAMPLE_SIZE = Gauge(
+    name="credit_risk_drift_sample_size",
+    documentation="Number of inference log rows used for drift computation",
+)

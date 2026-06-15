@@ -114,7 +114,6 @@ export async function predict(
 }
 
 export async function explainPrediction(
-  request_id: string,
   features: PredictRequest
 ): Promise<ExplainResponse> {
   /**
@@ -122,8 +121,54 @@ export async function explainPrediction(
    * Throws an AxiosError if the request fails.
    */
   const response = await apiClient.post<ExplainResponse>("/explain", {
-    request_id,
     features,
   });
   return response.data;
+}
+
+export async function enrichCustomer(
+  customerId: number
+): Promise<PredictRequest> {
+  const response = await apiClient.get<PredictRequest>(
+    `/enrich/${customerId}`
+  );
+  return response.data;
+}
+
+export interface SimulateRequest {
+  n_requests: number;
+  duration_seconds: number;
+  normal_fraction: number;
+  drift_feature: string;
+  drift_magnitude: number;
+  drift_speed: "sudden" | "gradual";
+}
+
+export interface SimulateStatus {
+  running: boolean;
+  completed: number;
+  total: number;
+  failed: number;
+  cancelled: boolean;
+  progress: number;
+  params: SimulateRequest;
+}
+
+export async function startSimulation(
+  params: SimulateRequest
+): Promise<void> {
+  await apiClient.post("/simulate", params);
+}
+
+export async function stopSimulation(): Promise<void> {
+  await apiClient.delete("/simulate");
+}
+
+export async function getSimulationStatus(): Promise<SimulateStatus> {
+  const response = await apiClient.get<SimulateStatus>("/simulate/status");
+  return response.data;
+}
+
+export async function triggerDriftComputation(): Promise<void> {
+  await apiClient.post("/drift");
 }

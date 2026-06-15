@@ -4,13 +4,14 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.metrics import MODEL_LOADED, PREDICTION_LATENCY, PREDICTION_SCORE, REQUEST_COUNT
 from app.models.db import InferenceLog, get_db
 from app.models.schemas import PredictRequest, PredictResponse
 from app.services.predictor import predict as run_predict
+from app.services.pandera_validator import validate_features
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,8 @@ def _toy_model(features: dict[str, Any]) -> float:
 
 @router.post("")
 def predict(
-    request: PredictRequest,
+    request: Request,
+    payload: PredictRequest,
     db: Session = Depends(get_db),
 ) -> PredictResponse:
     """Generate a credit risk score for a loan application.
@@ -45,11 +47,16 @@ def predict(
     Returns:
         Risk score and unique request identifier.
     """
-    request_id = str(uuid.uuid4())
+    request_id = request.state.request_id
     start_time = time.monotonic()
 
+    validation_error = validate_features(payload.model_dump())
+    if validation_error:
+        REQUEST_COUNT.labels(endpoint="/predict", status="error").inc()
+        raise HTTPException(status_code=422, detail=validation_error)
+
     try:
-        risk_score = run_predict(request.model_dump())
+        risk_score = run_predict(payload.model_dump())
         REQUEST_COUNT.labels(endpoint="/predict", status="success").inc()
     except ValueError as e:
         REQUEST_COUNT.labels(endpoint="/predict", status="error").inc()
@@ -60,15 +67,14 @@ def predict(
         raise HTTPException(status_code=503, detail="Model unavailable")
 
     latency_ms = (time.monotonic() - start_time) * 1000
-    latency_seconds = latency_ms / 1000
 
-    PREDICTION_LATENCY.observe(latency_seconds)
+    PREDICTION_LATENCY.observe(latency_ms / 1000)
     PREDICTION_SCORE.observe(risk_score)
-    
+
     _log_inference(
         db=db,
         request_id=request_id,
-        features=request.model_dump(),
+        features=payload.model_dump(),
         risk_score=risk_score,
         latency_ms=latency_ms,
     )

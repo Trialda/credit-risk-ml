@@ -3,7 +3,7 @@ import logging
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.metrics import EXPLANATION_LATENCY, REQUEST_COUNT
@@ -19,7 +19,8 @@ router = APIRouter(prefix="/explain", tags=["explain"])
 
 @router.post("")
 def explain_prediction(
-    request: ExplainRequest,
+    request: Request,
+    payload: ExplainRequest,
     db: Session = Depends(get_db),
 ) -> ExplainResponse:
     """Generate a credit risk score with SHAP feature explanations.
@@ -34,9 +35,10 @@ def explain_prediction(
     Returns:
         Risk score, base value, and per-feature SHAP contributions.
     """
+    request_id = request.state.request_id
     start_time = time.monotonic()
 
-    features = request.features.model_dump()
+    features = payload.features.model_dump()
 
     try:
         risk_score = predict(features)
@@ -55,7 +57,7 @@ def explain_prediction(
 
     _log_inference(
         db=db,
-        request_id=request.request_id,
+        request_id=request_id,
         features=features,
         risk_score=risk_score,
         shap_features=shap_features,
@@ -63,7 +65,7 @@ def explain_prediction(
     )
 
     return ExplainResponse(
-        request_id=request.request_id,
+        request_id=request_id,
         risk_score=risk_score,
         base_value=base_value,
         shap_features=shap_features,

@@ -180,7 +180,6 @@ class ExplainRequest(BaseModel):
         features: The same feature payload sent to /predict.
     """
 
-    request_id: str
     features: PredictRequest
 
 

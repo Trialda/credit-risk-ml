@@ -1,6 +1,7 @@
 import logging
 import warnings
 from pathlib import Path
+from ml.monitoring.reference import save_reference_distribution
 
 import mlflow
 import mlflow.sklearn
@@ -14,6 +15,7 @@ from ml.pipeline.features import build_feature_table
 from ml.pipeline.ingest import ingest_all
 from ml.pipeline.preprocess import (
     ALL_FEATURES,
+    NUMERICAL_FEATURES,
     CATEGORICAL_FEATURES,
     build_preprocessor,
     prepare_data,
@@ -100,11 +102,21 @@ def train() -> None:
         logger.info("Step 8: Saving model artifact")
         _save_artifact(model)
 
+        logger.info("Step 8b: Saving training reference distribution")
+        reference_dir = Path(settings.model_artifact_path).parent
+        save_reference_distribution(
+            df=X_train,
+            output_dir=reference_dir,
+            numerical_features=NUMERICAL_FEATURES,
+            categorical_features=CATEGORICAL_FEATURES,
+        )
+        
         logger.info(
             "Training complete, AUC: %.4f, KS: %.4f",
             metrics["auc_roc"],
             metrics["ks_statistic"],
         )
+
 
 
 def _fit_model(
