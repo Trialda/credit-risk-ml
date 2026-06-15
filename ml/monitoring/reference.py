@@ -44,9 +44,14 @@ def save_reference_distribution(
     for feature in numerical_features:
         if feature not in df.columns:
             continue
-        col = df[feature].dropna()
+
+        # Coerce to numeric — some columns may be object dtype
+        # if they passed through Postgres TEXT columns
+        col = pd.to_numeric(df[feature], errors="coerce").dropna()
+
         if len(col) == 0:
             continue
+
         reference["numerical"][feature] = {
             "mean": float(col.mean()),
             "std": float(col.std()),
@@ -62,7 +67,7 @@ def save_reference_distribution(
     for feature in categorical_features:
         if feature not in df.columns:
             continue
-        col = df[feature].dropna()
+        col = df[feature].dropna().astype(str)
         if len(col) == 0:
             continue
         value_counts = col.value_counts(normalize=True)

@@ -32,6 +32,35 @@ def setup_database():
     yield
     Base.metadata.drop_all(bind=engine)
 
+@pytest.fixture(scope="session", autouse=True)
+def setup_feature_table():
+    """Create a minimal feature table row for enrichment tests."""
+    with engine.connect() as conn:
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS features"))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS features.feature_table (
+                sk_id_curr BIGINT PRIMARY KEY,
+                amt_credit DOUBLE PRECISION,
+                amt_income_total DOUBLE PRECISION,
+                amt_annuity DOUBLE PRECISION,
+                days_birth DOUBLE PRECISION,
+                days_employed DOUBLE PRECISION,
+                cnt_children DOUBLE PRECISION,
+                target DOUBLE PRECISION
+            )
+        """))
+        conn.execute(text("""
+            INSERT INTO features.feature_table
+                (sk_id_curr, amt_credit, amt_income_total, amt_annuity,
+                 days_birth, days_employed, cnt_children, target)
+            VALUES (100002, 500000, 150000, 24700, -12000, -2000, 0, 0)
+            ON CONFLICT (sk_id_curr) DO NOTHING
+        """))
+        conn.commit()
+    yield
+    with engine.connect() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS features.feature_table"))
+        conn.commit()
 
 @pytest.fixture()
 def db_session():

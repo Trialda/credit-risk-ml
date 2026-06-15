@@ -2,8 +2,8 @@ import logging
 from typing import Optional
 
 import pandas as pd
-import pandera as pa
 from pandera import Column, DataFrameSchema, Check
+import pandera as pa
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +13,11 @@ feature_schema = DataFrameSchema(
         "amt_income_total": Column(float, Check.gt(0), nullable=True),
         "amt_annuity": Column(float, Check.gt(0), nullable=True),
         "amt_goods_price": Column(float, Check.ge(0), nullable=True),
-        "days_birth": Column(float, Check.lt(0), nullable=True),
-        "days_employed": Column(float, nullable=True),
+        "days_birth": Column(pa.Int, Check.lt(0), nullable=True),
+        "days_employed": Column(pa.Int, nullable=True),
         "days_registration": Column(float, nullable=True),
         "days_id_publish": Column(float, nullable=True),
-        "cnt_children": Column(float, Check.ge(0), nullable=True),
+        "cnt_children": Column(pa.Int, Check.ge(0), nullable=True),
         "cnt_fam_members": Column(float, Check.ge(0), nullable=True),
         "credit_income_ratio": Column(float, nullable=True),
         "annuity_income_ratio": Column(float, nullable=True),
@@ -43,6 +43,7 @@ feature_schema = DataFrameSchema(
         "pos_cash_late_count": Column(float, Check.ge(0), nullable=True),
     },
     strict=False,
+    coerce=True,
 )
 
 

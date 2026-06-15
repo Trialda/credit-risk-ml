@@ -230,54 +230,60 @@ async def _run_simulation(params: SimulateRequest) -> None:
     """
     delay = params.duration_seconds / params.n_requests
 
-    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
-        for i in range(params.n_requests):
-            if _state.cancelled:
-                logger.info("Simulation cancelled at request %d", i)
-                break
+    try:
+        async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+            for i in range(params.n_requests):
+                if _state.cancelled:
+                    logger.info("Simulation cancelled at request %d", i)
+                    break
 
-            is_drifted = random.random() > params.normal_fraction
+                is_drifted = random.random() > params.normal_fraction
 
-            if is_drifted and params.drift_speed == "gradual":
-                progress = i / params.n_requests
-                effective_magnitude = params.drift_magnitude * progress
-            elif is_drifted:
-                effective_magnitude = params.drift_magnitude
-            else:
-                effective_magnitude = 0.0
-
-            features = _generate_features(
-                drift_feature=params.drift_feature if is_drifted else None,
-                drift_magnitude=effective_magnitude,
-            )
-
-            try:
-                response = await client.post(
-                    "/predict",
-                    json=features,
-                    timeout=10.0,
-                )
-                if response.status_code == 200:
-                    _state.completed += 1
+                if is_drifted and params.drift_speed == "gradual":
+                    progress = i / params.n_requests
+                    effective_magnitude = params.drift_magnitude * progress
+                elif is_drifted:
+                    effective_magnitude = params.drift_magnitude
                 else:
-                    _state.failed += 1
-                    logger.warning(
-                        "Simulation request failed: %d",
-                        response.status_code,
+                    effective_magnitude = 0.0
+
+                features = _generate_features(
+                    drift_feature=params.drift_feature if is_drifted else None,
+                    drift_magnitude=effective_magnitude,
+                )
+
+                try:
+                    response = await client.post(
+                        "/predict",
+                        json=features,
+                        timeout=10.0,
                     )
-            except Exception as e:
-                _state.failed += 1
-                logger.warning("Simulation request error: %s", e)
+                    if response.status_code == 200:
+                        _state.completed += 1
+                    else:
+                        _state.failed += 1
+                        logger.warning(
+                            "Simulation request failed: %d — %s",
+                            response.status_code,
+                            response.text,
+                        )
+                except Exception as e:
+                    _state.failed += 1
+                    logger.warning("Simulation request error: %s", e)
 
-            await asyncio.sleep(delay)
+                await asyncio.sleep(delay)
 
-    _state.running = False
-    logger.info(
-        "Simulation complete: %d sent, %d failed",
-        _state.completed,
-        _state.failed,
-    )
-
+    finally:
+        _state.running = False
+        logger.info(
+            "Simulation complete: %d sent, %d failed",
+            _state.completed,
+            _state.failed,
+        )
+INTEGER_FIELDS = {
+    "days_birth", "days_employed", "days_registration",
+    "days_id_publish", "cnt_children", "cnt_fam_members"
+}
 
 def _generate_features(
     drift_feature: Optional[str] = None,
@@ -312,7 +318,12 @@ def _generate_features(
         if "max" in dist:
             value = min(value, dist["max"])
 
-        features[feature] = float(round(value, 2))
+        if feature in INTEGER_FIELDS:
+            value = int(round(value))
+        else:
+            value = float(round(value, 2))
+
+        features[feature] = value
 
     for feature, probs in CATEGORICAL_DISTRIBUTIONS.items():
         categories = list(probs.keys())
