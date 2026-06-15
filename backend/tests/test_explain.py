@@ -37,9 +37,9 @@ def test_explain_returns_base_value(client: TestClient) -> None:
     assert "base_value" in response.json()
 
 
-def test_explain_rejects_missing_request_id(client: TestClient) -> None:
-    """POST /explain returns HTTP 422 when request_id is missing."""
+def test_explain_accepts_features_only(client: TestClient) -> None:
+    """POST /explain returns HTTP 200 with only features, no request_id needed."""
     response = client.post("/explain", json={
         "features": VALID_PAYLOAD,
     })
-    assert response.status_code == 422
+    assert response.status_code == 200
