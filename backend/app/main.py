@@ -11,7 +11,9 @@ from app.routers import drift, enrich, explain, health, predict, simulate
 from app.services.explainer import load_explainer
 from app.services.predictor import load_model
 
+from app.middleware.api_key import APIKeyMiddleware
 from app.middleware.request_id import RequestIDMiddleware
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(APIKeyMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
 metrics_app = make_asgi_app()

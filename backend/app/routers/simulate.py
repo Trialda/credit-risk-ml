@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/simulate", tags=["simulate"])
-
+from app.config import settings
 
 @dataclass
 class SimulationState:
@@ -230,9 +230,14 @@ async def _run_simulation(params: SimulateRequest) -> None:
     """
     delay = params.duration_seconds / params.n_requests
 
+    headers = {}
+    if settings.api_key:
+        headers["X-API-Key"] = settings.api_key
+
     try:
         async with httpx.AsyncClient(
             base_url="http://nginx:80",
+            headers=headers,
             timeout=10.0,
         ) as client:
             tasks = []

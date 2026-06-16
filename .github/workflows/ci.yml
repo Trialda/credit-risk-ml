@@ -41,4 +41,5 @@ jobs:
         env:
           DATABASE_URL: postgresql://creditrisk:creditrisk@localhost:5432/creditrisk
           MODEL_PATH: /tmp/model.pkl
+          API_KEY: ""
         run: pytest tests/ -v
