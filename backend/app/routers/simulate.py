@@ -55,11 +55,11 @@ class SimulateRequest(BaseModel):
             'gradual' linearly increases drift magnitude over the run.
     """
 
-    n_requests: int = Field(100, ge=10, le=5000)
-    duration_seconds: int = Field(60, ge=10, le=86400)
+    n_requests: int = Field(100, ge=1, le=5000)
+    duration_seconds: int = Field(60, ge=1, le=86400)
     normal_fraction: float = Field(0.5, ge=0.0, le=1.0)
     drift_feature: str = Field("amt_credit")
-    drift_magnitude: float = Field(2.0, ge=0.5, le=10.0)
+    drift_magnitude: float = Field(2.0, ge=0.1, le=10.0)
     drift_speed: str = Field("gradual", pattern="^(sudden|gradual)$")
 
 
@@ -231,10 +231,13 @@ async def _run_simulation(params: SimulateRequest) -> None:
     delay = params.duration_seconds / params.n_requests
 
     try:
-        async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        async with httpx.AsyncClient(
+            base_url="http://nginx:80",
+            timeout=10.0,
+        ) as client:
+            tasks = []
             for i in range(params.n_requests):
                 if _state.cancelled:
-                    logger.info("Simulation cancelled at request %d", i)
                     break
 
                 is_drifted = random.random() > params.normal_fraction
@@ -252,24 +255,18 @@ async def _run_simulation(params: SimulateRequest) -> None:
                     drift_magnitude=effective_magnitude,
                 )
 
-                try:
-                    response = await client.post(
-                        "/predict",
-                        json=features,
-                        timeout=10.0,
-                    )
-                    if response.status_code == 200:
-                        _state.completed += 1
-                    else:
-                        _state.failed += 1
-                        logger.warning(
-                            "Simulation request failed: %d — %s",
-                            response.status_code,
-                            response.text,
-                        )
-                except Exception as e:
-                    _state.failed += 1
-                    logger.warning("Simulation request error: %s", e)
+                tasks.append(_send_request(client, features))
+
+                if len(tasks) >= 20 or i == params.n_requests - 1:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, Exception):
+                            _state.failed += 1
+                        elif result == 200:
+                            _state.completed += 1
+                        else:
+                            _state.failed += 1
+                    tasks = []
 
                 await asyncio.sleep(delay)
 
@@ -280,6 +277,27 @@ async def _run_simulation(params: SimulateRequest) -> None:
             _state.completed,
             _state.failed,
         )
+
+
+async def _send_request(
+    client: httpx.AsyncClient,
+    features: dict,
+) -> int:
+    """Send a single predict request and return the status code.
+
+    Args:
+        client: Shared async HTTP client.
+        features: Feature dictionary to send.
+
+    Returns:
+        HTTP status code.
+    """
+    try:
+        response = await client.post("/api/predict", json=features)
+        return response.status_code
+    except Exception as e:
+        logger.warning("Request error: %s", e)
+        raise
 INTEGER_FIELDS = {
     "days_birth", "days_employed", "days_registration",
     "days_id_publish", "cnt_children", "cnt_fam_members"

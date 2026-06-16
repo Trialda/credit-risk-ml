@@ -115,7 +115,7 @@ export default function SimulationPanel() {
       <div style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}>
         <label style={{ fontSize: "0.85rem" }}>
           Total requests: {params.n_requests}
-          <input type="range" min={10} max={2000} step={10}
+          <input type="range" min={1} max={2000} step={1}
             value={params.n_requests}
             onChange={(e) => handleChange("n_requests", parseInt(e.target.value))}
             style={{ width: "100%", display: "block" }} />
@@ -123,7 +123,7 @@ export default function SimulationPanel() {
 
         <label style={{ fontSize: "0.85rem" }}>
           Duration: {params.duration_seconds}s
-          <input type="range" min={10} max={3600} step={10}
+          <input type="range" min={1} max={3600} step={1}
             value={params.duration_seconds}
             onChange={(e) => handleChange("duration_seconds", parseInt(e.target.value))}
             style={{ width: "100%", display: "block" }} />
@@ -139,7 +139,7 @@ export default function SimulationPanel() {
 
         <label style={{ fontSize: "0.85rem" }}>
           Drift magnitude: {params.drift_magnitude}σ
-          <input type="range" min={0.5} max={10} step={0.5}
+          <input type="range" min={0.1} max={10} step={0.1}
             value={params.drift_magnitude}
             onChange={(e) => handleChange("drift_magnitude", parseFloat(e.target.value))}
             style={{ width: "100%", display: "block" }} />
