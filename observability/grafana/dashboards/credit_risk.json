@@ -24,569 +24,484 @@
       "datasource": "Prometheus",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
+          "color": {"mode": "palette-classic"},
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "req/s",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 0,
+            "fillOpacity": 10,
             "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
+            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "never",
             "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
+              {"color": "green", "value": null},
+              {"color": "red", "value": 80}
             ]
           },
-          "unit": "short"
+          "unit": "reqps"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {"id": "byRegexp", "options": ".*error.*"},
+            "properties": [
+              {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}
+            ]
+          },
+          {
+            "matcher": {"id": "byRegexp", "options": ".*success.*"},
+            "properties": [
+              {"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}
+            ]
+          }
+        ]
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 0
-      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "id": 2,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "tooltip": {"mode": "multi", "sort": "none"}
       },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "rate(credit_risk_requests_total[5m])",
+          "expr": "rate(credit_risk_requests_total[1m])",
           "legendFormat": "{{endpoint}} {{status}}",
           "refId": "A"
         }
       ],
-      "title": "Request rate",
+      "title": "Request rate (req/s)",
       "type": "timeseries"
     },
     {
       "datasource": "Prometheus",
+      "description": "Prediction latency percentiles. p50=median, p95=95th percentile, p99=99th percentile. Values above 500ms indicate model performance issues.",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
+          "color": {"mode": "palette-classic"},
           "custom": {
-            "fillOpacity": 80,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "latency",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 5,
             "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineWidth": 1
+            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "line"}
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.25},
+              {"color": "red", "value": 0.5}
             ]
           },
           "unit": "s"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "p50"},
+            "properties": [
+              {"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}},
+              {"id": "custom.lineWidth", "value": 2}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "p95"},
+            "properties": [
+              {"id": "color", "value": {"fixedColor": "yellow", "mode": "fixed"}},
+              {"id": "custom.lineWidth", "value": 2}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "p99"},
+            "properties": [
+              {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+              {"id": "custom.lineWidth", "value": 2}
+            ]
+          }
+        ]
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "id": 1,
       "options": {
-        "bucketOffset": 0,
-        "fillOpacity": 80,
-        "gradientMode": "none",
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
         },
-        "tooltip": {
-          "mode": "single"
-        }
+        "tooltip": {"mode": "multi", "sort": "desc"}
       },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "rate(credit_risk_prediction_latency_seconds_bucket[5m])",
-          "legendFormat": "{{le}}",
+          "expr": "histogram_quantile(0.50, rate(credit_risk_prediction_latency_seconds_bucket[5m]))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, rate(credit_risk_prediction_latency_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, rate(credit_risk_prediction_latency_seconds_bucket[5m]))",
+          "legendFormat": "p99",
+          "refId": "C"
         }
       ],
-      "title": "Prediction latency",
-      "type": "histogram"
+      "title": "Prediction latency — p50 / p95 / p99",
+      "type": "timeseries"
     },
     {
       "datasource": "Prometheus",
+      "description": "Rolling mean of predicted risk scores over time. A shift in this value signals population drift even without ground truth labels. Stable systems show a consistent mean around the training baseline.",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
+          "color": {"mode": "palette-classic"},
           "custom": {
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineWidth": 1
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "mean score",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "line+area"}
           },
           "mappings": [],
+          "min": 0,
+          "max": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.3},
+              {"color": "red", "value": 0.5}
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "last"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "credit_risk_score_mean",
+          "legendFormat": "mean predicted score",
+          "refId": "A"
+        }
+      ],
+      "title": "Mean predicted score (drift signal)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "PSI per feature against training distribution. PSI < 0.1 = stable (green). PSI 0.1-0.2 = moderate shift (yellow). PSI > 0.2 = significant drift (red). Values above 0.2 suggest the incoming population differs meaningfully from the training population.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "PSI",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "dashed+area"}
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.1},
+              {"color": "red", "value": 0.2}
             ]
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 3,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 5,
       "options": {
-        "bucketOffset": 0,
-        "fillOpacity": 80,
-        "gradientMode": "none",
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
+          "calcs": ["last"],
+          "displayMode": "table",
+          "placement": "right",
           "showLegend": true
         },
-        "tooltip": {
-          "mode": "single"
-        }
+        "tooltip": {"mode": "multi", "sort": "desc"}
       },
       "targets": [
         {
           "datasource": "Prometheus",
-          "expr": "rate(credit_risk_prediction_score_bucket[5m])",
-          "legendFormat": "{{le}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Score distribution (drift signal)",
-      "type": "histogram"
-    },
-    {
-"datasource": "Prometheus",
-      "description": "",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineStyle": {
-              "fill": "solid"
-            },
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "dashed+area"
-            }
-          },
-          "fieldMinMax": false,
-          "mappings": [],
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 10
-              },
-              {
-                "color": "#EAB839",
-                "value": 20
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "id": 5,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-"datasource": "Prometheus",
-          "disableTextWrap": false,
-          "editorMode": "code",
-          "exemplar": false,
           "expr": "credit_risk_feature_psi",
-          "format": "time_series",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "interval": "",
-          "legendFormat": "",
-          "range": true,
-          "refId": "A",
-          "useBackend": false
+          "legendFormat": "{{feature}}",
+          "refId": "A"
         }
       ],
       "title": "Feature PSI — all features",
       "type": "timeseries"
     },
     {
-"datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-"thresholds": {
-  "mode": "absolute",
-  "steps": [
-    {"color": "green", "value": null},
-    {"color": "#EAB839", "value": 0.1},
-    {"color": "red", "value": 0.2}
-  ]
-}
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 16
-      },
-      "id": 6,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
-      },
-      "pluginVersion": "10.4.2",
-      "targets": [
-        {
-"datasource": "Prometheus",
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "exemplar": false,
-          "expr": "topk(10, credit_risk_feature_psi)",
-          "format": "time_series",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "",
-          "range": true,
-          "refId": "A",
-          "useBackend": false
-        }
-      ],
-      "title": "Top 10 drifted features",
-      "type": "gauge"
-    },
-    {
-"datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-"thresholds": {
-  "mode": "absolute",
-  "steps": [
-    {"color": "green", "value": null},
-    {"color": "#EAB839", "value": 0.1},
-    {"color": "red", "value": 0.2}
-  ]
-}
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "id": 7,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "10.4.2",
-      "targets": [
-        {
-"datasource": "Prometheus",
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "credit_risk_score_psi",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "__auto",
-          "range": true,
-          "refId": "A",
-          "useBackend": false
-        }
-      ],
-      "title": "Score distribution PSI",
-      "type": "stat"
-    },
-    {
-"datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-"thresholds": {
-  "mode": "absolute",
-  "steps": [
-    {"color": "green", "value": null},
-    {"color": "#EAB839", "value": 0.3},
-    {"color": "red", "value": 0.5}
-  ]
-}
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 24
-      },
-      "id": 8,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "10.4.2",
-      "targets": [
-        {
-"datasource": "Prometheus",
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "credit_risk_score_mean",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "__auto",
-          "range": true,
-          "refId": "A",
-          "useBackend": false
-        }
-      ],
-      "title": "Mean predicted score (recent)",
-      "type": "stat"
-    },
-    {
       "datasource": "Prometheus",
+      "description": "Number of features currently showing significant drift (PSI > 0.2). Zero is healthy. Any positive value warrants investigation.",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
+          "color": {"mode": "thresholds"},
           "mappings": [
             {
-              "options": {
-                "0": {
-                  "text": "Not loaded"
-                }
-              },
-              "type": "value"
-            },
-            {
-              "options": {
-                "1": {
-                  "text": "Loaded"
-                }
-              },
+              "options": {"0": {"color": "green", "text": "No drift detected"}},
               "type": "value"
             }
           ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 16},
+      "id": 9,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "count(credit_risk_feature_psi > 0.2) or vector(0)",
+          "legendFormat": "drifted features",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "title": "Features with significant drift",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "PSI of the predicted score distribution against training baseline. PSI > 0.2 indicates the model is producing a different score distribution than during training — a strong signal of population shift or model degradation.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.1},
+              {"color": "red", "value": 0.2}
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 16},
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "credit_risk_score_psi",
+          "legendFormat": "score PSI",
+          "refId": "A"
+        }
+      ],
+      "title": "Score distribution PSI",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Number of inference log rows used for the most recent drift computation. Minimum 100 required. 1000+ recommended for statistical reliability.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"0": {"color": "red", "text": "No data"}},
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 100},
+              {"color": "green", "value": 1000}
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 16},
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "credit_risk_drift_sample_size",
+          "legendFormat": "sample size",
+          "refId": "A"
+        }
+      ],
+      "title": "Drift computation sample size",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"0": {"text": "Not loaded"}},
+              "type": "value"
+            },
+            {
+              "options": {"1": {"text": "Loaded"}},
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
             ]
           }
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
-      },
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 16},
       "id": 4,
       "options": {
         "colorMode": "background",
         "graphMode": "none",
-        "justifyMode": "auto",
+        "justifyMode": "center",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         },
@@ -608,20 +523,13 @@
   ],
   "refresh": "10s",
   "schemaVersion": 39,
-  "tags": [
-    "credit-risk"
-  ],
-  "templating": {
-    "list": []
-  },
-  "time": {
-    "from": "now-24h",
-    "to": "now"
-  },
+  "tags": ["credit-risk"],
+  "templating": {"list": []},
+  "time": {"from": "now-3h", "to": "now"},
   "timepicker": {},
   "timezone": "browser",
   "title": "Credit Risk ML",
   "uid": "credit-risk-ml",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
