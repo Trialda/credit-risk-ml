@@ -103,6 +103,7 @@ export interface ExplainResponse {
   shap_features: ShapFeature[];
 }
 
+
 export async function predict(
   payload: PredictRequest
 ): Promise<PredictResponse> {
@@ -172,4 +173,18 @@ export async function getSimulationStatus(): Promise<SimulateStatus> {
 
 export async function triggerDriftComputation(): Promise<void> {
   await apiClient.post("/drift");
+}
+
+export interface DriftResult {
+  feature_psi: Record<string, number>;
+  score_drift: {
+    score_psi: number;
+    score_mean: number;
+  };
+  n_samples: number;
+}
+
+export async function getDriftResults(): Promise<DriftResult> {
+  const response = await apiClient.post<DriftResult>("/drift");
+  return response.data;
 }

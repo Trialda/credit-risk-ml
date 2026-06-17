@@ -9,10 +9,21 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
+import os
+import json
+from pathlib import Path
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/simulate", tags=["simulate"])
 from app.config import settings
+
+REFERENCE_PATH = (
+    Path(os.getenv("MODEL_PATH", "/app/model/model.pkl")).parent
+    / "training_reference.json"
+)
+
+_reference_cache: Optional[dict] = None
 
 @dataclass
 class SimulationState:
@@ -353,6 +364,7 @@ def _generate_features(
         weights = list(probs.values())
         features[feature] = random.choices(categories, weights=weights)[0]
 
+    # Derived features unchanged
     features["credit_income_ratio"] = (
         features["amt_credit"] / features["amt_income_total"]
         if features["amt_income_total"] > 0 else 0.0
@@ -372,7 +384,9 @@ def _generate_features(
         if features["days_birth"] != 0 else 0.0
     )
 
-    for agg_feature in [
+    # Aggregated features — sample from training reference instead of 0
+    reference = _load_reference_for_simulation()
+    aggregated_features = [
         "bureau_count", "bureau_mean_days_credit", "bureau_total_credit",
         "bureau_total_debt", "bureau_mean_overdue", "bureau_max_overdue_days",
         "bureau_active_count", "bureau_closed_count", "bureau_bal_count",
@@ -385,7 +399,50 @@ def _generate_features(
         "credit_card_mean_utilisation", "credit_card_max_utilisation",
         "pos_cash_count", "pos_cash_mean_dpd", "pos_cash_max_dpd",
         "pos_cash_late_count",
-    ]:
-        features[agg_feature] = 0.0
+    ]
+
+    for agg_feature in aggregated_features:
+        if reference and agg_feature in reference.get("numerical", {}):
+            stats = reference["numerical"][agg_feature]
+            features[agg_feature] = round(_sample_from_reference(stats), 2)
+        else:
+            features[agg_feature] = 0.0
 
     return features
+
+def _load_reference_for_simulation() -> Optional[dict]:
+    """Load training reference distribution, caching after first read.
+
+    Returns:
+        Reference distribution dict, or None if not found.
+    """
+    global _reference_cache
+    if _reference_cache is not None:
+        return _reference_cache
+
+    if not REFERENCE_PATH.exists():
+        logger.warning(
+            "Training reference not found — aggregated features "
+            "will default to 0 in simulation"
+        )
+        return None
+
+    with open(REFERENCE_PATH) as f:
+        _reference_cache = json.load(f)
+    return _reference_cache
+
+
+def _sample_from_reference(stats: dict) -> float:
+    """Sample a plausible value from stored percentile statistics.
+
+    Uses mean and std to draw a normal sample, clipped to the
+    observed min/max range from training.
+
+    Args:
+        stats: Feature statistics with mean, std, min, max keys.
+
+    Returns:
+        A plausible sampled value.
+    """
+    value = np.random.normal(stats["mean"], stats["std"])
+    return float(np.clip(value, stats["min"], stats["max"]))
