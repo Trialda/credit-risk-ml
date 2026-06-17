@@ -337,20 +337,31 @@ def _generate_features(
         Complete feature dictionary ready for POST /predict.
     """
     features = {}
+    reference = _load_reference_for_simulation()
 
-    for feature, dist in FEATURE_DISTRIBUTIONS.items():
-        mean = dist["mean"]
-        std = dist["std"]
+    application_features = [
+        "amt_credit", "amt_income_total", "amt_annuity", "amt_goods_price",
+        "days_birth", "days_employed", "days_registration", "days_id_publish",
+        "cnt_children", "cnt_fam_members",
+    ]
 
-        if feature == drift_feature and drift_magnitude > 0:
-            mean = mean + drift_magnitude * std
+    for feature in application_features:
+        if reference and feature in reference.get("numerical", {}):
+            stats = reference["numerical"][feature]
 
-        value = np.random.normal(mean, std)
-
-        if "min" in dist:
-            value = max(value, dist["min"])
-        if "max" in dist:
-            value = min(value, dist["max"])
+            if feature == drift_feature and drift_magnitude > 0:
+                # Shift the distribution by sampling then adding a
+                # magnitude * std offset, preserving empirical shape
+                # while still injecting a controllable directional drift
+                value = _sample_from_reference(stats)
+                value = value + drift_magnitude * stats["std"]
+                value = max(min(value, stats["max"] * 2), stats["min"])
+            else:
+                value = _sample_from_reference(stats)
+        else:
+            # Fallback to the old Gaussian approach if reference missing
+            dist = FEATURE_DISTRIBUTIONS.get(feature, {"mean": 0, "std": 1})
+            value = np.random.normal(dist["mean"], dist["std"])
 
         if feature in INTEGER_FIELDS:
             value = int(round(value))
@@ -364,7 +375,7 @@ def _generate_features(
         weights = list(probs.values())
         features[feature] = random.choices(categories, weights=weights)[0]
 
-    # Derived features unchanged
+    # Derived features unchanged — still computed from the sampled values above
     features["credit_income_ratio"] = (
         features["amt_credit"] / features["amt_income_total"]
         if features["amt_income_total"] > 0 else 0.0
@@ -384,8 +395,7 @@ def _generate_features(
         if features["days_birth"] != 0 else 0.0
     )
 
-    # Aggregated features — sample from training reference instead of 0
-    reference = _load_reference_for_simulation()
+    # Aggregated features — unchanged, already using histogram sampling
     aggregated_features = [
         "bureau_count", "bureau_mean_days_credit", "bureau_total_credit",
         "bureau_total_debt", "bureau_mean_overdue", "bureau_max_overdue_days",
@@ -433,16 +443,30 @@ def _load_reference_for_simulation() -> Optional[dict]:
 
 
 def _sample_from_reference(stats: dict) -> float:
-    """Sample a plausible value from stored percentile statistics.
+    """Sample a plausible value from the stored training histogram.
 
-    Uses mean and std to draw a normal sample, clipped to the
-    observed min/max range from training.
+    Picks a bin according to its real training proportion, then samples
+    uniformly within that bin's edges. This reproduces the actual shape
+    of the training distribution, including zero-inflation and skew,
+    rather than assuming a Gaussian, which badly misrepresents features
+    like installment payment differences or account balances.
 
     Args:
-        stats: Feature statistics with mean, std, min, max keys.
+        stats: Feature statistics dict with bin_edges and proportions.
 
     Returns:
-        A plausible sampled value.
+        A plausible sampled value matching the training distribution shape.
     """
-    value = np.random.normal(stats["mean"], stats["std"])
-    return float(np.clip(value, stats["min"], stats["max"]))
+    if "bin_edges" not in stats or "proportions" not in stats:
+        # Fallback for any feature missing histogram data
+        value = np.random.normal(stats["mean"], stats["std"])
+        return float(np.clip(value, stats["min"], stats["max"]))
+
+    bin_edges = stats["bin_edges"]
+    proportions = stats["proportions"]
+
+    bin_index = np.random.choice(len(proportions), p=proportions)
+    low = bin_edges[bin_index]
+    high = bin_edges[bin_index + 1]
+
+    return float(np.random.uniform(low, high))

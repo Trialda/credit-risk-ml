@@ -9,6 +9,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 REFERENCE_FILENAME = "training_reference.json"
+N_BINS = 10
 
 
 def save_reference_distribution(
@@ -19,9 +20,10 @@ def save_reference_distribution(
 ) -> Path:
     """Compute and save training distribution statistics to disk.
 
-    Saves per-feature statistics used as the PSI baseline. Numerical
-    features get mean, std, and percentiles. Categorical features get
-    value counts as proportions.
+    Saves per-feature histograms (bin edges + normalised counts) used
+    as the PSI baseline. This preserves the actual distribution shape,
+    including zero-inflation and heavy tails, unlike a percentile-only
+    summary which loses shape information on reconstruction.
 
     Args:
         df: Training feature DataFrame (pre-split, full training set).
@@ -37,6 +39,7 @@ def save_reference_distribution(
 
     reference = {
         "n_samples": len(df),
+        "n_bins": N_BINS,
         "numerical": {},
         "categorical": {},
     }
@@ -44,24 +47,30 @@ def save_reference_distribution(
     for feature in numerical_features:
         if feature not in df.columns:
             continue
-
-        # Coerce to numeric — some columns may be object dtype
-        # if they passed through Postgres TEXT columns
         col = pd.to_numeric(df[feature], errors="coerce").dropna()
-
         if len(col) == 0:
             continue
 
+        bin_edges = np.percentile(col, np.linspace(0, 100, N_BINS + 1))
+        bin_edges = np.unique(bin_edges)
+
+        if len(bin_edges) < 2:
+            logger.warning(
+                "Feature %s has insufficient unique values for "
+                "histogram binning, skipping", feature
+            )
+            continue
+
+        counts, _ = np.histogram(col, bins=bin_edges)
+        proportions = counts / len(col)
+
         reference["numerical"][feature] = {
+            "bin_edges": bin_edges.tolist(),
+            "proportions": proportions.tolist(),
             "mean": float(col.mean()),
             "std": float(col.std()),
             "min": float(col.min()),
             "max": float(col.max()),
-            "p5": float(np.percentile(col, 5)),
-            "p25": float(np.percentile(col, 25)),
-            "p50": float(np.percentile(col, 50)),
-            "p75": float(np.percentile(col, 75)),
-            "p95": float(np.percentile(col, 95)),
         }
 
     for feature in categorical_features:
@@ -78,10 +87,11 @@ def save_reference_distribution(
 
     logger.info(
         "Training reference distribution saved to %s "
-        "(%d numerical, %d categorical features)",
+        "(%d numerical, %d categorical features, %d bins each)",
         output_path,
         len(reference["numerical"]),
         len(reference["categorical"]),
+        N_BINS,
     )
 
     return output_path

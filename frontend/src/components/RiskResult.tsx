@@ -9,7 +9,7 @@ export default function RiskResult({ result }: Props) {
   const risk = result.risk_score > 0.5 ? "High" : "Low";
   const color = result.risk_score > 0.5 ? "red" : "green";
 
-  const topFeatures = result.shap_features.slice(0, 8);
+  const topFeatures = result.shap_features//.slice(0, 8);
   const maxAbsShap = Math.max(
     ...topFeatures.map((f) => Math.abs(f.shap_value))
   );
