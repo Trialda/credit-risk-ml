@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { getDriftResults, type DriftResult } from "../api/client";
+import FeatureHistogram from "./FeatureHistogram";
 
 type SortMode = "psi_desc" | "alphabetical";
 
@@ -19,7 +20,7 @@ export default function MonitoringPanel() {
   const [error, setError] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("psi_desc");
   const [showCount, setShowCount] = useState(15);
-
+  const [selectedFeature, setSelectedFeature] = useState<string>("amt_credit");
   async function handleComputeDrift() {
     setLoading(true);
     setError(null);
@@ -65,6 +66,7 @@ export default function MonitoringPanel() {
 
   return (
     <div>
+      
       <h2>Drift Monitoring</h2>
       <p style={{ fontSize: "0.85rem", color: "gray" }}>
         Per-feature Population Stability Index against the training distribution.
@@ -165,7 +167,12 @@ export default function MonitoringPanel() {
               <ReferenceLine x={PSI_WARNING} stroke="#d62728" strokeDasharray="4 4" />
 <Bar dataKey="psi" radius={[0, 4, 4, 0]}>
   {chartData.map((entry, index) => (
-    <Cell key={`cell-${index}`} fill={psiColor(entry.psi)} />
+    <Cell
+      key={`cell-${index}`}
+      fill={psiColor(entry.psi)}
+      onClick={() => setSelectedFeature(entry.feature)}
+      style={{ cursor: "pointer" }}
+    />
   ))}
 </Bar>
             </BarChart>
@@ -176,6 +183,7 @@ export default function MonitoringPanel() {
           </p>
         </>
       )}
+      <FeatureHistogram selected={selectedFeature} onSelect={setSelectedFeature} />
     </div>
   );
 }

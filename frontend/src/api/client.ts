@@ -189,3 +189,21 @@ export async function getDriftResults(): Promise<DriftResult> {
   const response = await apiClient.post<DriftResult>("/drift");
   return response.data;
 }
+
+export interface HistogramResult {
+  feature: string;
+  bin_edges: number[];
+  training_proportions: number[];
+  production_proportions: number[];
+  n_samples: number;
+}
+
+export async function getDriftFeatureList(): Promise<string[]> {
+  const response = await apiClient.get<{ features: string[] }>("/drift/features");
+  return response.data.features;
+}
+
+export async function getFeatureHistogram(feature: string): Promise<HistogramResult> {
+  const response = await apiClient.get<HistogramResult>(`/drift/histogram/${feature}`);
+  return response.data;
+}
