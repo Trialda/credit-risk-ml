@@ -13,6 +13,8 @@ import os
 import json
 from pathlib import Path
 
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/simulate", tags=["simulate"])
@@ -22,6 +24,9 @@ REFERENCE_PATH = (
     Path(os.getenv("MODEL_PATH", "/app/model/model.pkl")).parent
     / "training_reference.json"
 )
+
+SIMULATION_POOL_PATH = Path("/app/ml/data/simulation_pool.csv")
+_simulation_pool_cache: Optional[pd.DataFrame] = None
 
 _reference_cache: Optional[dict] = None
 
@@ -72,6 +77,7 @@ class SimulateRequest(BaseModel):
     drift_feature: str = Field("amt_credit")
     drift_magnitude: float = Field(2.0, ge=0.1, le=10.0)
     drift_speed: str = Field("gradual", pattern="^(sudden|gradual)$")
+    data_source: str = Field("synthetic", pattern="^(synthetic|real)$")
 
 
 FEATURE_DISTRIBUTIONS = {
@@ -266,10 +272,22 @@ async def _run_simulation(params: SimulateRequest) -> None:
                 else:
                     effective_magnitude = 0.0
 
-                features = _generate_features(
-                    drift_feature=params.drift_feature if is_drifted else None,
-                    drift_magnitude=effective_magnitude,
-                )
+                if params.data_source == "real":
+                    features = _sample_real_row(
+                        drift_feature=params.drift_feature if is_drifted else None,
+                        drift_magnitude=effective_magnitude,
+                    )
+                    if features is None:
+                        # Pool unavailable — fall back to synthetic
+                        features = _generate_features(
+                            drift_feature=params.drift_feature if is_drifted else None,
+                            drift_magnitude=effective_magnitude,
+                        )
+                else:
+                    features = _generate_features(
+                        drift_feature=params.drift_feature if is_drifted else None,
+                        drift_magnitude=effective_magnitude,
+                    )
 
                 tasks.append(_send_request(client, features))
 
@@ -289,9 +307,8 @@ async def _run_simulation(params: SimulateRequest) -> None:
     finally:
         _state.running = False
         logger.info(
-            "Simulation complete: %d sent, %d failed",
-            _state.completed,
-            _state.failed,
+            "Simulation complete: %d sent, %d failed (data_source=%s)",
+            _state.completed, _state.failed, params.data_source,
         )
 
 
@@ -470,3 +487,91 @@ def _sample_from_reference(stats: dict) -> float:
     high = bin_edges[bin_index + 1]
 
     return float(np.random.uniform(low, high))
+
+def _load_simulation_pool() -> Optional[pd.DataFrame]:
+    """Load the real held-out applicant pool, caching after first read."""
+    global _simulation_pool_cache
+    if _simulation_pool_cache is not None:
+        return _simulation_pool_cache
+    
+    if not SIMULATION_POOL_PATH.exists():
+        logger.warning(
+            "Simulation pool not found at %s — 'real' data source "
+            "unavailable, falling back to synthetic", SIMULATION_POOL_PATH
+        )
+        return None
+
+    _simulation_pool_cache = pd.read_csv(SIMULATION_POOL_PATH)
+    #print(f"=== SIMULATION POOL LOADED: {len(_simulation_pool_cache)} rows ===", flush=True)
+    logger.info(
+        "Loaded simulation pool: %d real applicant rows",
+        len(_simulation_pool_cache),
+    )
+    return _simulation_pool_cache
+
+DERIVED_FROM = {
+    "amt_credit": ["credit_income_ratio", "credit_term"],
+    "amt_annuity": ["annuity_income_ratio", "credit_term"],
+    "amt_income_total": ["credit_income_ratio", "annuity_income_ratio"],
+    "days_birth": ["age_years", "employment_to_age_ratio"],
+    "days_employed": ["employment_years", "employment_to_age_ratio"],
+}
+
+def _recompute_derived(row: dict, changed_feature: str) -> dict:
+    """Recompute ratio features that depend on a mutated feature.
+
+    Args:
+        row: Feature dictionary with one feature already mutated.
+        changed_feature: The feature that was overwritten.
+
+    Returns:
+        Row with dependent derived features recalculated.
+    """
+    if changed_feature not in DERIVED_FROM:
+        return row
+
+    if row.get("amt_income_total", 0) > 0:
+        row["credit_income_ratio"] = row["amt_credit"] / row["amt_income_total"]
+        row["annuity_income_ratio"] = row["amt_annuity"] / row["amt_income_total"]
+    if row.get("amt_annuity", 0) > 0:
+        row["credit_term"] = row["amt_credit"] / row["amt_annuity"]
+    row["age_years"] = row["days_birth"] / -365
+    row["employment_years"] = row["days_employed"] / -365
+    if row.get("days_birth", 0) != 0:
+        row["employment_to_age_ratio"] = row["days_employed"] / row["days_birth"]
+
+    return row
+
+def _sample_real_row(
+    drift_feature: Optional[str] = None,
+    drift_magnitude: float = 0.0,
+) -> Optional[dict]:
+    """Sample one real applicant row from the held-out pool.
+
+    Args:
+        drift_feature: Feature to overwrite with a drifted value.
+        drift_magnitude: Standard deviations to shift, if drifting.
+
+    Returns:
+        Feature dictionary ready for POST /predict, or None if the
+        pool is unavailable.
+    """
+    pool = _load_simulation_pool()
+    if pool is None:
+        return None
+
+    row = pool.sample(n=1).iloc[0].to_dict()
+    row.pop("sk_id_curr", None)
+
+    if drift_feature and drift_magnitude > 0:
+        reference = _load_reference_for_simulation()
+        if reference and drift_feature in reference.get("numerical", {}):
+            std = reference["numerical"][drift_feature]["std"]
+            row[drift_feature] = row[drift_feature] + drift_magnitude * std
+            row = _recompute_derived(row, drift_feature)
+
+    for field in INTEGER_FIELDS:
+        if field in row:
+            row[field] = int(round(row[field]))
+
+    return row

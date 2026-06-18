@@ -6,6 +6,7 @@
 ml/.venv/
 ml/evaluation/
 mlruns/
+ml/data/*.csv
 
 
 # Data (Kaggle CSVs can be gigabytes)

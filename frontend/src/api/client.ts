@@ -144,6 +144,7 @@ export interface SimulateRequest {
   drift_feature: string;
   drift_magnitude: number;
   drift_speed: "sudden" | "gradual";
+  data_source: "synthetic" | "real";
 }
 
 export interface SimulateStatus {

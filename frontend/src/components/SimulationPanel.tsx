@@ -22,6 +22,7 @@ const defaultParams: SimulateRequest = {
   drift_feature: "amt_credit",
   drift_magnitude: 3.0,
   drift_speed: "gradual",
+  data_source: "synthetic",
 };
 
 export default function SimulationPanel() {
@@ -113,6 +114,19 @@ export default function SimulationPanel() {
       </p>
 
       <div style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}>
+        <label style={{ fontSize: "0.85rem" }}>
+          Data source:
+          <select
+            value={params.data_source}
+            onChange={(e) =>
+              handleChange("data_source", e.target.value as "synthetic" | "real")
+            }
+            style={{ display: "block", width: "100%", padding: "0.3rem", marginTop: "0.2rem" }}
+          >
+            <option value="synthetic">Synthetic (histogram-based generator)</option>
+            <option value="real">Real held-out applicants (test set)</option>
+          </select>
+        </label>
         <label style={{ fontSize: "0.85rem" }}>
           Total requests: {params.n_requests}
           <input type="range" min={1} max={2000} step={1}
