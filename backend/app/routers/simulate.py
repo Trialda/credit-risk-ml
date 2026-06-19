@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 from dataclasses import dataclass, field
+import time
 from typing import Optional
 
 import numpy as np
@@ -29,6 +30,25 @@ SIMULATION_POOL_PATH = Path("/app/ml/data/simulation_pool.csv")
 _simulation_pool_cache: Optional[pd.DataFrame] = None
 
 _reference_cache: Optional[dict] = None
+
+def _resolve_simulation_target(bypass_rate_limit: bool) -> tuple[str, str]:
+    """Resolve the base URL and predict path for a simulation run.
+
+    When bypass_rate_limit is True, requests go directly to the backend
+    container, skipping Nginx's rate limiting entirely, useful for
+    drift analysis where you want clean data unaffected by gateway
+    throttling. When False, requests go through Nginx exactly as real
+    frontend traffic would, including rate limiting.
+
+    Args:
+        bypass_rate_limit: Whether to skip the Nginx gateway.
+
+    Returns:
+        Tuple of (base_url, predict_path).
+    """
+    if bypass_rate_limit:
+        return "http://backend:8000", "/predict"
+    return "http://nginx:80", "/api/predict"
 
 @dataclass
 class SimulationState:
@@ -71,13 +91,15 @@ class SimulateRequest(BaseModel):
             'gradual' linearly increases drift magnitude over the run.
     """
 
-    n_requests: int = Field(100, ge=1, le=5000)
+    n_requests: int = Field(100, ge=1, le=20000)
     duration_seconds: int = Field(60, ge=1, le=86400)
     normal_fraction: float = Field(0.5, ge=0.0, le=1.0)
     drift_feature: str = Field("amt_credit")
     drift_magnitude: float = Field(2.0, ge=0.1, le=10.0)
     drift_speed: str = Field("gradual", pattern="^(sudden|gradual)$")
     data_source: str = Field("synthetic", pattern="^(synthetic|real)$")
+    bypass_rate_limit: bool = Field(False)
+    batch_size: int = Field(5, ge=1, le=50)
 
 
 FEATURE_DISTRIBUTIONS = {
@@ -221,7 +243,7 @@ async def simulation_status() -> dict:
         Current simulation state including progress and parameters.
     """
     progress = (
-        _state.completed / _state.total
+        (_state.completed + _state.failed) / _state.total
         if _state.total > 0 else 0.0
     )
 
@@ -240,26 +262,33 @@ async def _run_simulation(params: SimulateRequest) -> None:
     """Background task: send synthetic predict requests.
 
     Generates feature vectors mixing normal and drifted traffic,
-    sends them to /predict, and tracks progress in module state.
+    sends them to /predict in batches, and tracks progress in
+    module state. Sleep between batches accounts for time already
+    spent on the network round-trip, so total elapsed time tracks
+    the requested duration rather than duration + request time.
 
     Args:
         params: Simulation configuration.
     """
-    delay = params.duration_seconds / params.n_requests
+    delay_per_request = params.duration_seconds / params.n_requests
+    batch_delay_target = params.batch_size * delay_per_request
 
     headers = {}
     if settings.api_key:
         headers["X-API-Key"] = settings.api_key
 
+    base_url, predict_path = _resolve_simulation_target(params.bypass_rate_limit)
+
     try:
         async with httpx.AsyncClient(
-            base_url="http://nginx:80",
+            base_url=base_url,
             headers=headers,
             timeout=10.0,
         ) as client:
             tasks = []
             for i in range(params.n_requests):
                 if _state.cancelled:
+                    logger.info("Simulation cancelled at request %d", i)
                     break
 
                 is_drifted = random.random() > params.normal_fraction
@@ -278,7 +307,6 @@ async def _run_simulation(params: SimulateRequest) -> None:
                         drift_magnitude=effective_magnitude,
                     )
                     if features is None:
-                        # Pool unavailable — fall back to synthetic
                         features = _generate_features(
                             drift_feature=params.drift_feature if is_drifted else None,
                             drift_magnitude=effective_magnitude,
@@ -289,9 +317,12 @@ async def _run_simulation(params: SimulateRequest) -> None:
                         drift_magnitude=effective_magnitude,
                     )
 
-                tasks.append(_send_request(client, features))
+                tasks.append(_send_request(predict_path, client, features))
 
-                if len(tasks) >= 20 or i == params.n_requests - 1:
+                is_last = i == params.n_requests - 1
+                if len(tasks) >= params.batch_size or is_last:
+                    batch_start = time.monotonic()
+
                     results = await asyncio.gather(*tasks, return_exceptions=True)
                     for result in results:
                         if isinstance(result, Exception):
@@ -302,7 +333,10 @@ async def _run_simulation(params: SimulateRequest) -> None:
                             _state.failed += 1
                     tasks = []
 
-                await asyncio.sleep(delay)
+                    elapsed = time.monotonic() - batch_start
+                    remaining_sleep = max(0.0, batch_delay_target - elapsed)
+                    if not is_last:
+                        await asyncio.sleep(remaining_sleep)
 
     finally:
         _state.running = False
@@ -313,12 +347,14 @@ async def _run_simulation(params: SimulateRequest) -> None:
 
 
 async def _send_request(
+    predict_path: str,
     client: httpx.AsyncClient,
     features: dict,
 ) -> int:
     """Send a single predict request and return the status code.
 
     Args:
+        predict_path: The path to POST to (varies by bypass mode).
         client: Shared async HTTP client.
         features: Feature dictionary to send.
 
@@ -326,11 +362,12 @@ async def _send_request(
         HTTP status code.
     """
     try:
-        response = await client.post("/api/predict", json=features)
+        response = await client.post(predict_path, json=features, timeout=10.0)
         return response.status_code
     except Exception as e:
         logger.warning("Request error: %s", e)
         raise
+
 INTEGER_FIELDS = {
     "days_birth", "days_employed", "days_registration",
     "days_id_publish", "cnt_children", "cnt_fam_members"

@@ -145,6 +145,8 @@ export interface SimulateRequest {
   drift_magnitude: number;
   drift_speed: "sudden" | "gradual";
   data_source: "synthetic" | "real";
+  bypass_rate_limit: boolean;
+  batch_size: number;
 }
 
 export interface SimulateStatus {
