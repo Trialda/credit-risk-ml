@@ -22,6 +22,9 @@ const defaultParams: SimulateRequest = {
   drift_feature: "amt_credit",
   drift_magnitude: 3.0,
   drift_speed: "gradual",
+  data_source: "synthetic",
+  bypass_rate_limit: false,
+  batch_size: 5,
 };
 
 export default function SimulationPanel() {
@@ -96,7 +99,7 @@ export default function SimulationPanel() {
 
   function handleChange(
     key: keyof SimulateRequest,
-    value: string | number
+    value: string | number | boolean
   ) {
     setParams({ ...params, [key]: value });
   }
@@ -114,21 +117,55 @@ export default function SimulationPanel() {
 
       <div style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}>
         <label style={{ fontSize: "0.85rem" }}>
-          Total requests: {params.n_requests}
-          <input type="range" min={10} max={2000} step={10}
-            value={params.n_requests}
-            onChange={(e) => handleChange("n_requests", parseInt(e.target.value))}
-            style={{ width: "100%", display: "block" }} />
+          Data source:
+          <select
+            value={params.data_source}
+            onChange={(e) =>
+              handleChange("data_source", e.target.value as "synthetic" | "real")
+            }
+            style={{ display: "block", width: "100%", padding: "0.3rem", marginTop: "0.2rem" }}
+          >
+            <option value="synthetic">Synthetic (histogram-based generator)</option>
+            <option value="real">Real held-out applicants (test set)</option>
+          </select>
         </label>
+          <label style={{ fontSize: "0.85rem" }}>
+            Total requests: {params.n_requests}
+            <input type="range" min={1} max={20000} step={10}
+              value={params.n_requests}
+              onChange={(e) => handleChange("n_requests", parseInt(e.target.value))}
+              style={{ width: "100%", display: "block" }} />
+          </label>
 
         <label style={{ fontSize: "0.85rem" }}>
           Duration: {params.duration_seconds}s
-          <input type="range" min={10} max={3600} step={10}
+          <input type="range" min={1} max={3600} step={1}
             value={params.duration_seconds}
             onChange={(e) => handleChange("duration_seconds", parseInt(e.target.value))}
             style={{ width: "100%", display: "block" }} />
         </label>
+        <label style={{ fontSize: "0.85rem" }}>
+          Requests sent at once: {params.batch_size}
+          <span
+            title="Requests in the same wave fire simultaneously rather than spaced out. Smaller values (1-3) produce smooth, evenly-paced traffic that respects rate limits closely. Larger values fire bursts that can trigger rate limiting even when the average rate is within the gateway's limit."
+            style={{ cursor: "help", marginLeft: "4px" }}
+          >
+            ⓘ
+          </span>
+          <input type="range" min={1} max={20} step={1}
+            value={params.batch_size}
+            onChange={(e) => handleChange("batch_size", parseInt(e.target.value))}
+            style={{ width: "100%", display: "block" }} />
+        </label>
 
+        <label style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <input
+            type="checkbox"
+            checked={params.bypass_rate_limit}
+            onChange={(e) => handleChange("bypass_rate_limit", e.target.checked)}
+          />
+          Bypass Nginx rate limiting (send directly to backend)
+        </label>
         <label style={{ fontSize: "0.85rem" }}>
           Normal traffic fraction: {Math.round(params.normal_fraction * 100)}%
           <input type="range" min={0} max={1} step={0.05}
@@ -139,7 +176,7 @@ export default function SimulationPanel() {
 
         <label style={{ fontSize: "0.85rem" }}>
           Drift magnitude: {params.drift_magnitude}σ
-          <input type="range" min={0.5} max={10} step={0.5}
+          <input type="range" min={0.1} max={10} step={0.1}
             value={params.drift_magnitude}
             onChange={(e) => handleChange("drift_magnitude", parseFloat(e.target.value))}
             style={{ width: "100%", display: "block" }} />
@@ -179,7 +216,7 @@ export default function SimulationPanel() {
         <div style={{ marginBottom: "1rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between",
             fontSize: "0.85rem", marginBottom: "4px" }}>
-            <span>Progress: {completed}/{total} requests</span>
+            <span>Progress: {completed + failed}/{total} requests</span>
             <span>{progressPct}%</span>
           </div>
           <div style={{ height: "8px", background: "#eee", borderRadius: "4px" }}>
@@ -193,7 +230,7 @@ export default function SimulationPanel() {
           </div>
           {failed > 0 && (
             <p style={{ fontSize: "0.75rem", color: "orange", margin: "4px 0 0" }}>
-              {failed} requests failed
+              {completed} requests completed, {failed} requests failed
             </p>
           )}
         </div>

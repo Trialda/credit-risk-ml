@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 from dataclasses import dataclass, field
+import time
 from typing import Optional
 
 import numpy as np
@@ -9,10 +10,45 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
+import os
+import json
+from pathlib import Path
+
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/simulate", tags=["simulate"])
+from app.config import settings
 
+REFERENCE_PATH = (
+    Path(os.getenv("MODEL_PATH", "/app/model/model.pkl")).parent
+    / "training_reference.json"
+)
+
+SIMULATION_POOL_PATH = Path("/app/ml/data/simulation_pool.csv")
+_simulation_pool_cache: Optional[pd.DataFrame] = None
+
+_reference_cache: Optional[dict] = None
+
+def _resolve_simulation_target(bypass_rate_limit: bool) -> tuple[str, str]:
+    """Resolve the base URL and predict path for a simulation run.
+
+    When bypass_rate_limit is True, requests go directly to the backend
+    container, skipping Nginx's rate limiting entirely, useful for
+    drift analysis where you want clean data unaffected by gateway
+    throttling. When False, requests go through Nginx exactly as real
+    frontend traffic would, including rate limiting.
+
+    Args:
+        bypass_rate_limit: Whether to skip the Nginx gateway.
+
+    Returns:
+        Tuple of (base_url, predict_path).
+    """
+    if bypass_rate_limit:
+        return "http://backend:8000", "/predict"
+    return "http://nginx:80", "/api/predict"
 
 @dataclass
 class SimulationState:
@@ -55,12 +91,15 @@ class SimulateRequest(BaseModel):
             'gradual' linearly increases drift magnitude over the run.
     """
 
-    n_requests: int = Field(100, ge=10, le=5000)
-    duration_seconds: int = Field(60, ge=10, le=86400)
+    n_requests: int = Field(100, ge=1, le=20000)
+    duration_seconds: int = Field(60, ge=1, le=86400)
     normal_fraction: float = Field(0.5, ge=0.0, le=1.0)
     drift_feature: str = Field("amt_credit")
-    drift_magnitude: float = Field(2.0, ge=0.5, le=10.0)
+    drift_magnitude: float = Field(2.0, ge=0.1, le=10.0)
     drift_speed: str = Field("gradual", pattern="^(sudden|gradual)$")
+    data_source: str = Field("synthetic", pattern="^(synthetic|real)$")
+    bypass_rate_limit: bool = Field(False)
+    batch_size: int = Field(5, ge=1, le=50)
 
 
 FEATURE_DISTRIBUTIONS = {
@@ -204,7 +243,7 @@ async def simulation_status() -> dict:
         Current simulation state including progress and parameters.
     """
     progress = (
-        _state.completed / _state.total
+        (_state.completed + _state.failed) / _state.total
         if _state.total > 0 else 0.0
     )
 
@@ -223,15 +262,30 @@ async def _run_simulation(params: SimulateRequest) -> None:
     """Background task: send synthetic predict requests.
 
     Generates feature vectors mixing normal and drifted traffic,
-    sends them to /predict, and tracks progress in module state.
+    sends them to /predict in batches, and tracks progress in
+    module state. Sleep between batches accounts for time already
+    spent on the network round-trip, so total elapsed time tracks
+    the requested duration rather than duration + request time.
 
     Args:
         params: Simulation configuration.
     """
-    delay = params.duration_seconds / params.n_requests
+    delay_per_request = params.duration_seconds / params.n_requests
+    batch_delay_target = params.batch_size * delay_per_request
+
+    headers = {}
+    if settings.api_key:
+        headers["X-API-Key"] = settings.api_key
+
+    base_url, predict_path = _resolve_simulation_target(params.bypass_rate_limit)
 
     try:
-        async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        async with httpx.AsyncClient(
+            base_url=base_url,
+            headers=headers,
+            timeout=10.0,
+        ) as client:
+            tasks = []
             for i in range(params.n_requests):
                 if _state.cancelled:
                     logger.info("Simulation cancelled at request %d", i)
@@ -247,39 +301,73 @@ async def _run_simulation(params: SimulateRequest) -> None:
                 else:
                     effective_magnitude = 0.0
 
-                features = _generate_features(
-                    drift_feature=params.drift_feature if is_drifted else None,
-                    drift_magnitude=effective_magnitude,
-                )
-
-                try:
-                    response = await client.post(
-                        "/predict",
-                        json=features,
-                        timeout=10.0,
+                if params.data_source == "real":
+                    features = _sample_real_row(
+                        drift_feature=params.drift_feature if is_drifted else None,
+                        drift_magnitude=effective_magnitude,
                     )
-                    if response.status_code == 200:
-                        _state.completed += 1
-                    else:
-                        _state.failed += 1
-                        logger.warning(
-                            "Simulation request failed: %d — %s",
-                            response.status_code,
-                            response.text,
+                    if features is None:
+                        features = _generate_features(
+                            drift_feature=params.drift_feature if is_drifted else None,
+                            drift_magnitude=effective_magnitude,
                         )
-                except Exception as e:
-                    _state.failed += 1
-                    logger.warning("Simulation request error: %s", e)
+                else:
+                    features = _generate_features(
+                        drift_feature=params.drift_feature if is_drifted else None,
+                        drift_magnitude=effective_magnitude,
+                    )
 
-                await asyncio.sleep(delay)
+                tasks.append(_send_request(predict_path, client, features))
+
+                is_last = i == params.n_requests - 1
+                if len(tasks) >= params.batch_size or is_last:
+                    batch_start = time.monotonic()
+
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, Exception):
+                            _state.failed += 1
+                        elif result == 200:
+                            _state.completed += 1
+                        else:
+                            _state.failed += 1
+                    tasks = []
+
+                    elapsed = time.monotonic() - batch_start
+                    remaining_sleep = max(0.0, batch_delay_target - elapsed)
+                    if not is_last:
+                        await asyncio.sleep(remaining_sleep)
 
     finally:
         _state.running = False
         logger.info(
-            "Simulation complete: %d sent, %d failed",
-            _state.completed,
-            _state.failed,
+            "Simulation complete: %d sent, %d failed (data_source=%s)",
+            _state.completed, _state.failed, params.data_source,
         )
+
+
+async def _send_request(
+    predict_path: str,
+    client: httpx.AsyncClient,
+    features: dict,
+) -> int:
+    """Send a single predict request and return the status code.
+
+    Args:
+        predict_path: The path to POST to (varies by bypass mode).
+        client: Shared async HTTP client.
+        features: Feature dictionary to send.
+
+    Returns:
+        HTTP status code.
+    """
+    try:
+        response = await client.post(predict_path, json=features, timeout=10.0)
+        return response.status_code
+    except Exception as e:
+        logger.warning("Request error: %s", e)
+        raise
+
 INTEGER_FIELDS = {
     "days_birth", "days_employed", "days_registration",
     "days_id_publish", "cnt_children", "cnt_fam_members"
@@ -303,20 +391,31 @@ def _generate_features(
         Complete feature dictionary ready for POST /predict.
     """
     features = {}
+    reference = _load_reference_for_simulation()
 
-    for feature, dist in FEATURE_DISTRIBUTIONS.items():
-        mean = dist["mean"]
-        std = dist["std"]
+    application_features = [
+        "amt_credit", "amt_income_total", "amt_annuity", "amt_goods_price",
+        "days_birth", "days_employed", "days_registration", "days_id_publish",
+        "cnt_children", "cnt_fam_members",
+    ]
 
-        if feature == drift_feature and drift_magnitude > 0:
-            mean = mean + drift_magnitude * std
+    for feature in application_features:
+        if reference and feature in reference.get("numerical", {}):
+            stats = reference["numerical"][feature]
 
-        value = np.random.normal(mean, std)
-
-        if "min" in dist:
-            value = max(value, dist["min"])
-        if "max" in dist:
-            value = min(value, dist["max"])
+            if feature == drift_feature and drift_magnitude > 0:
+                # Shift the distribution by sampling then adding a
+                # magnitude * std offset, preserving empirical shape
+                # while still injecting a controllable directional drift
+                value = _sample_from_reference(stats)
+                value = value + drift_magnitude * stats["std"]
+                value = max(min(value, stats["max"] * 2), stats["min"])
+            else:
+                value = _sample_from_reference(stats)
+        else:
+            # Fallback to the old Gaussian approach if reference missing
+            dist = FEATURE_DISTRIBUTIONS.get(feature, {"mean": 0, "std": 1})
+            value = np.random.normal(dist["mean"], dist["std"])
 
         if feature in INTEGER_FIELDS:
             value = int(round(value))
@@ -330,6 +429,7 @@ def _generate_features(
         weights = list(probs.values())
         features[feature] = random.choices(categories, weights=weights)[0]
 
+    # Derived features unchanged — still computed from the sampled values above
     features["credit_income_ratio"] = (
         features["amt_credit"] / features["amt_income_total"]
         if features["amt_income_total"] > 0 else 0.0
@@ -349,7 +449,8 @@ def _generate_features(
         if features["days_birth"] != 0 else 0.0
     )
 
-    for agg_feature in [
+    # Aggregated features — unchanged, already using histogram sampling
+    aggregated_features = [
         "bureau_count", "bureau_mean_days_credit", "bureau_total_credit",
         "bureau_total_debt", "bureau_mean_overdue", "bureau_max_overdue_days",
         "bureau_active_count", "bureau_closed_count", "bureau_bal_count",
@@ -362,7 +463,151 @@ def _generate_features(
         "credit_card_mean_utilisation", "credit_card_max_utilisation",
         "pos_cash_count", "pos_cash_mean_dpd", "pos_cash_max_dpd",
         "pos_cash_late_count",
-    ]:
-        features[agg_feature] = 0.0
+    ]
+
+    for agg_feature in aggregated_features:
+        if reference and agg_feature in reference.get("numerical", {}):
+            stats = reference["numerical"][agg_feature]
+            features[agg_feature] = round(_sample_from_reference(stats), 2)
+        else:
+            features[agg_feature] = 0.0
 
     return features
+
+def _load_reference_for_simulation() -> Optional[dict]:
+    """Load training reference distribution, caching after first read.
+
+    Returns:
+        Reference distribution dict, or None if not found.
+    """
+    global _reference_cache
+    if _reference_cache is not None:
+        return _reference_cache
+
+    if not REFERENCE_PATH.exists():
+        logger.warning(
+            "Training reference not found — aggregated features "
+            "will default to 0 in simulation"
+        )
+        return None
+
+    with open(REFERENCE_PATH) as f:
+        _reference_cache = json.load(f)
+    return _reference_cache
+
+
+def _sample_from_reference(stats: dict) -> float:
+    """Sample a plausible value from the stored training histogram.
+
+    Picks a bin according to its real training proportion, then samples
+    uniformly within that bin's edges. This reproduces the actual shape
+    of the training distribution, including zero-inflation and skew,
+    rather than assuming a Gaussian, which badly misrepresents features
+    like installment payment differences or account balances.
+
+    Args:
+        stats: Feature statistics dict with bin_edges and proportions.
+
+    Returns:
+        A plausible sampled value matching the training distribution shape.
+    """
+    if "bin_edges" not in stats or "proportions" not in stats:
+        # Fallback for any feature missing histogram data
+        value = np.random.normal(stats["mean"], stats["std"])
+        return float(np.clip(value, stats["min"], stats["max"]))
+
+    bin_edges = stats["bin_edges"]
+    proportions = stats["proportions"]
+
+    bin_index = np.random.choice(len(proportions), p=proportions)
+    low = bin_edges[bin_index]
+    high = bin_edges[bin_index + 1]
+
+    return float(np.random.uniform(low, high))
+
+def _load_simulation_pool() -> Optional[pd.DataFrame]:
+    """Load the real held-out applicant pool, caching after first read."""
+    global _simulation_pool_cache
+    if _simulation_pool_cache is not None:
+        return _simulation_pool_cache
+    
+    if not SIMULATION_POOL_PATH.exists():
+        logger.warning(
+            "Simulation pool not found at %s — 'real' data source "
+            "unavailable, falling back to synthetic", SIMULATION_POOL_PATH
+        )
+        return None
+
+    _simulation_pool_cache = pd.read_csv(SIMULATION_POOL_PATH)
+    logger.info(
+        "Loaded simulation pool: %d real applicant rows",
+        len(_simulation_pool_cache),
+    )
+    return _simulation_pool_cache
+
+DERIVED_FROM = {
+    "amt_credit": ["credit_income_ratio", "credit_term"],
+    "amt_annuity": ["annuity_income_ratio", "credit_term"],
+    "amt_income_total": ["credit_income_ratio", "annuity_income_ratio"],
+    "days_birth": ["age_years", "employment_to_age_ratio"],
+    "days_employed": ["employment_years", "employment_to_age_ratio"],
+}
+
+def _recompute_derived(row: dict, changed_feature: str) -> dict:
+    """Recompute ratio features that depend on a mutated feature.
+
+    Args:
+        row: Feature dictionary with one feature already mutated.
+        changed_feature: The feature that was overwritten.
+
+    Returns:
+        Row with dependent derived features recalculated.
+    """
+    if changed_feature not in DERIVED_FROM:
+        return row
+
+    if row.get("amt_income_total", 0) > 0:
+        row["credit_income_ratio"] = row["amt_credit"] / row["amt_income_total"]
+        row["annuity_income_ratio"] = row["amt_annuity"] / row["amt_income_total"]
+    if row.get("amt_annuity", 0) > 0:
+        row["credit_term"] = row["amt_credit"] / row["amt_annuity"]
+    row["age_years"] = row["days_birth"] / -365
+    row["employment_years"] = row["days_employed"] / -365
+    if row.get("days_birth", 0) != 0:
+        row["employment_to_age_ratio"] = row["days_employed"] / row["days_birth"]
+
+    return row
+
+def _sample_real_row(
+    drift_feature: Optional[str] = None,
+    drift_magnitude: float = 0.0,
+) -> Optional[dict]:
+    """Sample one real applicant row from the held-out pool.
+
+    Args:
+        drift_feature: Feature to overwrite with a drifted value.
+        drift_magnitude: Standard deviations to shift, if drifting.
+
+    Returns:
+        Feature dictionary ready for POST /predict, or None if the
+        pool is unavailable.
+    """
+    pool = _load_simulation_pool()
+    if pool is None:
+        return None
+
+    row = pool.sample(n=1).iloc[0].to_dict()
+    row.pop("sk_id_curr", None)
+
+    if drift_feature and drift_magnitude > 0:
+        reference = _load_reference_for_simulation()
+        if reference and drift_feature in reference.get("numerical", {}):
+            std = reference["numerical"][drift_feature]["std"]
+            row[drift_feature] = row[drift_feature] + drift_magnitude * std
+            row = _recompute_derived(row, drift_feature)
+
+    for field in INTEGER_FIELDS:
+        if field in row:
+            row[field] = int(round(row[field]))
+
+    return row

@@ -3,8 +3,9 @@ import type { ExplainResponse } from "./api/client";
 import LoanForm from "./components/LoanForm";
 import RiskResult from "./components/RiskResult";
 import SimulationPanel from "./components/SimulationPanel";
+import MonitoringPanel from "./components/MonitoringPanel";
 
-type Tab = "predict" | "simulate";
+type Tab = "predict" | "simulate" | "monitor";
 
 export default function App() {
   const [result, setResult] = useState<ExplainResponse | null>(null);
@@ -32,6 +33,9 @@ export default function App() {
         <button style={tabStyle("simulate")} onClick={() => setActiveTab("simulate")}>
           Simulate
         </button>
+        <button style={tabStyle("monitor")} onClick={() => setActiveTab("monitor")}>
+          Monitor
+        </button>
       </div>
 
       {activeTab === "predict" && (
@@ -42,6 +46,7 @@ export default function App() {
       )}
 
       {activeTab === "simulate" && <SimulationPanel />}
+      {activeTab === "monitor" && <MonitoringPanel />}
     </main>
   );
 }

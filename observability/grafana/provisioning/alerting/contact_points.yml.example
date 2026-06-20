@@ -1,0 +1,19 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: discord-drift-alerts
+    receivers:
+      - uid: discord_webhook
+        type: discord
+        settings:
+          url: "REPLACE_WITH_YOUR_DISCORD_WEBHOOK_URL"
+          use_discord_username: true
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: discord-drift-alerts
+    group_by: ["alertname"]
+    matchers:
+      - severity = warning

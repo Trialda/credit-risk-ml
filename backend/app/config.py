@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     database_url: str
     model_path: str = "/app/model/model.pkl"
+    api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

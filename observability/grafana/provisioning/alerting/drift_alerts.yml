@@ -1,0 +1,51 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: drift_alerts
+    folder: Credit Risk Alerts
+    interval: 1m
+    rules:
+      - uid: significant_drift_alert
+        title: Significant drift on monitored features
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: >
+                credit_risk_feature_psi{feature=~"amt_credit|amt_income_total|amt_annuity|days_birth|days_employed|credit_income_ratio|annuity_income_ratio|credit_term|age_years|employment_years|employment_to_age_ratio"}
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: "__expr__"
+            model:
+              type: reduce
+              refId: B
+              expression: A
+              reducer: max
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              refId: C
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.2]
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feature '{{ $labels.feature }}' shows significant drift — PSI = {{ printf \"%.3f\" $values.B.Value }}. Consider checking the Monitor tab and whether retraining is warranted."

@@ -1,11 +1,12 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
   headers: {
     "Content-Type": "application/json",
+    "X-API-Key": import.meta.env.VITE_API_KEY ?? "",
   },
 });
 
@@ -102,6 +103,7 @@ export interface ExplainResponse {
   shap_features: ShapFeature[];
 }
 
+
 export async function predict(
   payload: PredictRequest
 ): Promise<PredictResponse> {
@@ -142,6 +144,9 @@ export interface SimulateRequest {
   drift_feature: string;
   drift_magnitude: number;
   drift_speed: "sudden" | "gradual";
+  data_source: "synthetic" | "real";
+  bypass_rate_limit: boolean;
+  batch_size: number;
 }
 
 export interface SimulateStatus {
@@ -171,4 +176,36 @@ export async function getSimulationStatus(): Promise<SimulateStatus> {
 
 export async function triggerDriftComputation(): Promise<void> {
   await apiClient.post("/drift");
+}
+
+export interface DriftResult {
+  feature_psi: Record<string, number>;
+  score_drift: {
+    score_psi: number;
+    score_mean: number;
+  };
+  n_samples: number;
+}
+
+export async function getDriftResults(): Promise<DriftResult> {
+  const response = await apiClient.post<DriftResult>("/drift");
+  return response.data;
+}
+
+export interface HistogramResult {
+  feature: string;
+  bin_edges: number[];
+  training_proportions: number[];
+  production_proportions: number[];
+  n_samples: number;
+}
+
+export async function getDriftFeatureList(): Promise<string[]> {
+  const response = await apiClient.get<{ features: string[] }>("/drift/features");
+  return response.data.features;
+}
+
+export async function getFeatureHistogram(feature: string): Promise<HistogramResult> {
+  const response = await apiClient.get<HistogramResult>(`/drift/histogram/${feature}`);
+  return response.data;
 }

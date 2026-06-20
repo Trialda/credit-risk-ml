@@ -23,6 +23,40 @@ REFERENCE_PATH = (
     / "training_reference.json"
 )
 
+def compute_psi_from_bins(
+    bin_edges: list[float],
+    reference_proportions: list[float],
+    production_values: np.ndarray,
+) -> float:
+    """Compute PSI using pre-computed training bin edges and proportions.
+
+    Bins production values into the same edges used for the training
+    reference, so the comparison uses identical bucket boundaries —
+    no reconstruction or distributional assumptions.
+
+    Args:
+        bin_edges: Bin boundaries from the training distribution.
+        reference_proportions: Proportion of training data in each bin.
+        production_values: Recent production values to compare.
+
+    Returns:
+        PSI value. Higher means more drift.
+    """
+    production_values = production_values[~np.isnan(production_values)]
+
+    if len(production_values) == 0:
+        return 0.0
+
+    edges = np.array(bin_edges)
+    ref_props = np.array(reference_proportions)
+
+    prod_counts, _ = np.histogram(production_values, bins=edges)
+    prod_props = prod_counts / len(production_values)
+
+    ref_props = np.where(ref_props == 0, 1e-4, ref_props)
+    prod_props = np.where(prod_props == 0, 1e-4, prod_props)
+
+    return float(np.sum((prod_props - ref_props) * np.log(prod_props / ref_props)))
 
 def compute_psi(
     reference: np.ndarray,
@@ -61,24 +95,6 @@ def compute_psi(
     prod_props = np.where(prod_props == 0, 1e-4, prod_props)
 
     return float(np.sum((prod_props - ref_props) * np.log(prod_props / ref_props)))
-
-
-def _reconstruct_reference_sample(stats: dict) -> np.ndarray:
-    """Reconstruct approximate reference distribution from percentiles.
-
-    Args:
-        stats: Feature statistics with p5, p25, p50, p75, p95 keys.
-
-    Returns:
-        Approximate sample from the reference distribution.
-    """
-    percentile_values = np.array([
-        stats["p5"], stats["p25"], stats["p50"],
-        stats["p75"], stats["p95"],
-    ])
-    percentile_points = np.array([5, 25, 50, 75, 95])
-    sample_points = np.linspace(5, 95, 1000)
-    return np.interp(sample_points, percentile_points, percentile_values)
 
 
 def _load_reference() -> Optional[dict]:
@@ -197,27 +213,28 @@ def run_drift_computation(db: Session) -> Optional[dict]:
     feature_psi = {}
     for feature in available_features:
         stats = numerical_stats[feature]
-        ref_sample = _reconstruct_reference_sample(stats)
+
+        if "bin_edges" not in stats:
+            logger.warning(
+                "Feature %s missing bin_edges — retrain to update "
+                "reference format", feature
+            )
+            continue
+
         prod_values = production_df[feature].astype(float).values
-        psi = compute_psi(ref_sample, prod_values)
+        psi = compute_psi_from_bins(
+            stats["bin_edges"],
+            stats["proportions"],
+            prod_values,
+        )
         feature_psi[feature] = psi
 
     scores = production_df["_risk_score"].astype(float).values
-    ref_score_stats = reference.get("numerical", {}).get("risk_score")
-
-    score_drift = {}
-    if ref_score_stats is not None:
-        ref_scores = _reconstruct_reference_sample(ref_score_stats)
-        score_psi = compute_psi(ref_scores, scores)
-        score_drift = {
-            "score_psi": score_psi,
-            "score_mean": float(np.mean(scores)),
-        }
-    else:
-        score_drift = {
-            "score_psi": 0.0,
-            "score_mean": float(np.mean(scores)),
-        }
+    score_psi = 0.0
+    score_drift = {
+        "score_psi": score_psi,
+        "score_mean": float(np.mean(scores)),
+    }
 
     results = {
         "feature_psi": feature_psi,

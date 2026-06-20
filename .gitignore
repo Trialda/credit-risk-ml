@@ -6,6 +6,7 @@
 ml/.venv/
 ml/evaluation/
 mlruns/
+ml/data/*.csv
 
 
 # Data (Kaggle CSVs can be gigabytes)
@@ -33,7 +34,10 @@ dist/
 # Node
 node_modules/
 frontend/dist/
+frontend/.env
+frontend/.env.local
 
 # OS
 .DS_Store
 Thumbs.db
+observability/grafana/provisioning/alerting/contact_points.yml 
