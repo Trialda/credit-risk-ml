@@ -42,7 +42,7 @@ def compute_drift(db: Session = Depends(get_db)) -> dict:
         raise HTTPException(
             status_code=503,
             detail=(
-                "Drift computation unavailable — ensure training reference "
+                "Drift computation unavailable, ensure training reference "
                 "exists and sufficient inference data has been collected"
             ),
         )

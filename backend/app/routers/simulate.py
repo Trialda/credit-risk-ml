@@ -539,7 +539,6 @@ def _load_simulation_pool() -> Optional[pd.DataFrame]:
         return None
 
     _simulation_pool_cache = pd.read_csv(SIMULATION_POOL_PATH)
-    #print(f"=== SIMULATION POOL LOADED: {len(_simulation_pool_cache)} rows ===", flush=True)
     logger.info(
         "Loaded simulation pool: %d real applicant rows",
         len(_simulation_pool_cache),
