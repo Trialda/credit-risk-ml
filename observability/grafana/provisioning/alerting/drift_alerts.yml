@@ -7,7 +7,7 @@ groups:
     interval: 1m
     rules:
       - uid: significant_drift_alert
-        title: Significant drift detected
+        title: Significant drift on monitored features
         condition: C
         data:
           - refId: A
@@ -16,7 +16,8 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: max(credit_risk_feature_psi)
+              expr: >
+                credit_risk_feature_psi{feature=~"amt_credit|amt_income_total|amt_annuity|days_birth|days_employed|credit_income_ratio|annuity_income_ratio|credit_term|age_years|employment_years|employment_to_age_ratio"}
               refId: A
           - refId: B
             relativeTimeRange:
@@ -27,7 +28,7 @@ groups:
               type: reduce
               refId: B
               expression: A
-              reducer: last
+              reducer: max
           - refId: C
             relativeTimeRange:
               from: 300
@@ -47,4 +48,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "At least one feature shows PSI above 0.2 — significant drift detected."
+          summary: >-
+            Significant drift detected.
+            {{ range $values.A }}
+            {{ .Labels.feature }}: PSI = {{ printf "%.3f" .Value }}
+            {{ end }}
