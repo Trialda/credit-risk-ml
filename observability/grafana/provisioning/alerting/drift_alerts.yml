@@ -48,8 +48,4 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: >-
-            Significant drift detected.
-            {{ range $values.A }}
-            {{ .Labels.feature }}: PSI = {{ printf "%.3f" .Value }}
-            {{ end }}
+          summary: "Feature '{{ $labels.feature }}' shows significant drift — PSI = {{ printf \"%.3f\" $values.B.Value }}. Consider checking the Monitor tab and whether retraining is warranted."
