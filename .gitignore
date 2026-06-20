@@ -40,3 +40,4 @@ frontend/.env.local
 # OS
 .DS_Store
 Thumbs.db
+observability/grafana/provisioning/alerting/contact_points.yml 
