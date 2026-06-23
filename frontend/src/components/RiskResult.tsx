@@ -5,9 +5,35 @@ interface Props {
 }
 
 export default function RiskResult({ result }: Props) {
-  const percentage = (result.risk_score * 100).toFixed(1);
-  const risk = result.risk_score > 0.5 ? "High" : "Low";
-  const color = result.risk_score > 0.5 ? "red" : "green";
+  // Threshold chosen from evaluate.py's threshold analysis (see MLflow run
+  // 95e2d9f26bea48fdb1d1b701e21c864e), NOT the naive midpoint of 0.5, which
+  // given an 8% base default rate barely filters the applicant pool at all
+  // (default_rate_at_0_5 = 4.8%, only marginally better than the unconditional
+  // base rate of 8.07%). 0.2 targets a meaningfully safer approval pool
+  // (default_rate_at_0_2 = 2.25%) while keeping the approval rate ~27%.
+  const score = result.risk_score;
+  const percentage = (score * 100).toFixed(1);
+
+  let risk: "Low" | "Medium" | "High";
+  let color: "green" | "orange" | "red";
+  let decision: "Approve" | "Manual Review" | "Decline"
+
+  if (score <= 0.10) {
+    // 0% to 10%: Ultra-safe pool (default_rate_at_0_1 = 1.47%)
+    risk = "Low";
+    color = "green";
+    decision = "Approve";
+  } else if (score <= 0.20) {
+    // 10% to 20%: Moderate risk pool. Great for higher interest rates or manual underwriting review
+    risk = "Medium";
+    color = "orange";
+    decision = "Manual Review";
+  } else {
+    // 20%+: Toxic zone (Enforces 0.2 MLflow cutoff threshold to protect portfolio)
+    risk = "High";
+    color = "red";
+    decision = "Decline";
+  }
 
   const topFeatures = result.shap_features//.slice(0, 8);
   const maxAbsShap = Math.max(
@@ -19,15 +45,19 @@ export default function RiskResult({ result }: Props) {
       <h2>Risk Assessment</h2>
 
       <p>
-        <strong>Score:</strong> {percentage}%
+        <strong>Predicted Default Probability:</strong> {percentage}%
       </p>
       <p>
         <strong>Risk level:</strong>{" "}
         <span style={{ color }}>{risk}</span>
       </p>
-      <p style={{ fontSize: "0.8rem", color: "gray" }}>
-        Base value: {(result.base_value * 100).toFixed(1)}%
+      <p>
+        <strong>Decision:</strong>{" "}
+        <span style={{ color }}>{decision}</span>
       </p>
+      {/* <p style={{ fontSize: "0.8rem", color: "gray" }}>
+        Base value: {(result.base_value).toFixed(1)}
+      </p> */}
 
       <h3>Top contributing factors</h3>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
