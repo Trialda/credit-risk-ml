@@ -24,6 +24,9 @@ using real-time ground-truth labels.
   curated feature set
 - A traffic simulator with two modes (synthetic and real held-out
   data) for generating test traffic and exercising drift detection
+- Infrastructure as code: Terraform-provisioned AWS (EC2, ECR, OIDC
+  trust for GitHub Actions, no stored AWS credentials), deployed and
+  verified once; see Deployment
 
 
 ## Screenshots
@@ -122,8 +125,9 @@ and always available.
 | Data | PostgreSQL |
 | Observability | Prometheus, Grafana |
 | Gateway | Nginx |
-| Infra | Docker Compose (local) |
-| CI | GitHub Actions |
+| Infrastructure | Terraform, AWS (EC2, ECR, IAM/OIDC, S3), Docker Compose |
+| CI/CD | GitHub Actions |
+
 
 Polars is used for ingestion and feature engineering: large
 analytical joins on tables exceeding 10M+ rows; Pandas only appears
@@ -435,6 +439,14 @@ test suite runs in GitHub Actions; the frontend currently does not
 have an equivalent `tsc --noEmit` or lint step, so TypeScript issues
 are only caught locally in the editor.
 
+**EC2 root volume size.** The default Amazon Linux AMI root volume
+(8GB) is not enough, pulling the Postgres, Nginx, and application images
+exhausted it during testing (`no space left on device` mid-pull). `main.tf` sets
+`root_block_device.volume_size = 20` explicitly. If you change this
+on an existing instance, Terraform may not automatically detect that
+it requires replacement. Use `terraform apply -replace=aws_instance.app`
+if a plain `apply` doesn't pick up the change.
+
 ## Data licensing
 
 This project trains on the Home Credit Default Risk dataset, hosted
@@ -452,11 +464,109 @@ Kaggle's default terms for most datasets. As a result:
 
 ## Deployment
 
-This project currently runs locally via Docker Compose. Cloud
-deployment: Terraform-provisioned AWS infrastructure, OIDC-based
-CI/CD to ECR, EC2, [TODO] is planned but not yet built. When it exists, it
-will demonstrate infrastructure provisioning specifically, not serve as a 
-publicly available demo (may change in future iterations).
+This project has been deployed to AWS once, to validate the
+infrastructure and capture screenshots, not as a permanently
+available demo. Given the dataset's licensing restrictions (see
+Data licensing), the deployed instance runs with an empty database
+and no model loaded; it demonstrates that the infrastructure
+provisions correctly and the application boots, not live predictions.
+
+Reproducing this requires Terraform (≥1.11), the AWS CLI, and an AWS
+account, none of which are needed to run the project locally.
+
+### What's provisioned
+
+- **ECR**: two repositories (backend, frontend), with a lifecycle
+  policy keeping only the 5 most recent images
+- **IAM / OIDC**: GitHub Actions authenticates to AWS via OIDC,
+  scoped to this repository only, with no stored AWS credentials
+  anywhere. A separate, minimal IAM role lets the EC2 instance pull
+  images from ECR, also without stored credentials
+- **EC2**: a single `t3.small` instance running the same Docker
+  Compose stack as local development, pulling pre-built images
+  instead of building from source
+- **S3**: Terraform state, with native state locking
+  (`use_lockfile = true`, Terraform 1.11+) rather than a DynamoDB
+  lock table
+
+### Reproducing this yourself
+
+```bash
+# One-time manual bootstrap (the state backend can't be created by
+# Terraform itself, since Terraform needs it to already exist)
+aws s3api create-bucket --bucket  \
+  --region eu-north-1 --create-bucket-configuration LocationConstraint=eu-north-1
+aws s3api put-bucket-versioning --bucket  \
+  --versioning-configuration Status=Enabled
+```
+
+Update the bucket name in `infra/terraform/backend.tf` to match, then:
+
+```bash
+cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars
+# edit terraform.tfvars: your own GitHub repo, your IP for SSH access
+terraform init
+```
+
+The OIDC/ECR resources need to exist before any image can be pushed,
+and the EC2 instance needs an image to exist before it can boot successfully, 
+so this is a two-step apply:
+
+```bash
+# Step 1, OIDC + ECR only
+terraform apply -var-file="terraform.tfvars" \
+  -target=aws_iam_openid_connect_provider.github_actions \
+  -target=aws_iam_role.github_actions \
+  -target=aws_iam_role_policy.github_actions_ecr \
+  -target=aws_ecr_repository.backend \
+  -target=aws_ecr_repository.frontend \
+  -target=aws_ecr_lifecycle_policy.backend \
+  -target=aws_ecr_lifecycle_policy.frontend
+
+terraform output github_actions_role_arn
+# add this ARN as a GitHub repo secret: AWS_ROLE_ARN
+# push to main, triggering the build-and-push CI job
+```
+
+Once images exist in ECR:
+
+```bash
+# Step 2: everything else, including EC2
+terraform apply -var-file="terraform.tfvars"
+```
+
+```bash
+terraform output ec2_public_ip
+curl http:/<ec2_public_ip>//api/health
+```
+
+### Tearing down
+
+EC2 is the only resource with ongoing cost. To stop paying for it
+while keeping ECR images and the OIDC trust intact (so a future
+redeploy is a single `apply` again, no re-bootstrapping):
+
+```bash
+terraform destroy -var-file="terraform.tfvars" \
+  -target=aws_instance.app \
+  -target=aws_security_group.app
+```
+
+To remove everything, including ECR and the OIDC/GitHub trust:
+
+```bash
+terraform destroy -var-file="terraform.tfvars"
+```
+
+Removing the S3 state bucket itself is a separate, manual, and
+irreversible step, only do this if you're certain you won't use
+Terraform on this project again:
+
+```bash
+aws s3 rm s3:// --recursive
+aws s3api delete-bucket --bucket  --region eu-north-1
+```
 
 ## Project structure
 ```text
@@ -518,6 +628,15 @@ credit-risk-ml/
 │   ├── Dockerfile
 │   └── package.json
 │── images/                            # Documentation screenshots & evaluation plots
+├── infra/
+│   └── terraform/
+│       ├── backend.tf                 # S3 remote state config, native locking (no DynamoDB)
+│       ├── variables.tf               # Region, project name, instance type, github_repo, allowed_ssh_cidr
+│       ├── security.tf                # OIDC provider + IAM role/trust policy for GitHub Actions (ECR push only)
+│       ├── main.tf                    # ECR repos + lifecycle policies, EC2 instance, security group, EC2 IAM role
+│       ├── outputs.tf                 # EC2 public IP, ECR repo URLs, GitHub Actions role ARN
+│       ├── user_data.sh.tpl           # EC2 first-boot script: installs Docker, pulls images, starts the stack
+│       └── terraform.tfvars.example   # Committed placeholder, real values (github_repo, allowed_ssh_cidr) stay local
 ├── ml/
 │   ├── data/                          # gitignored: simulation_pool.csv + labels,
 │   │                                  # generated by notebooks/01_eda.ipynb

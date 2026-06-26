@@ -125,6 +125,11 @@ resource "aws_instance" "app" {
   vpc_security_group_ids  = [aws_security_group.app.id]
   iam_instance_profile    = aws_iam_instance_profile.ec2_instance.name
 
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
   user_data = templatefile("${path.module}/user_data.sh.tpl", {
     aws_region          = var.aws_region
     ecr_backend_url      = aws_ecr_repository.backend.repository_url
