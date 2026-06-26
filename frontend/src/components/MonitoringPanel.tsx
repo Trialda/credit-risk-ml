@@ -161,7 +161,11 @@ export default function MonitoringPanel() {
   interval={0}
 />
               <Tooltip
-                formatter={(value: number) => [value.toFixed(3), "PSI"]}
+                formatter={(value: number | string | undefined | readonly (string | number)[]) => {
+                const unwrappedValue = Array.isArray(value) ? value[0] : value;
+                const numericValue = typeof unwrappedValue === 'number' ? unwrappedValue : Number(unwrappedValue) || 0;
+                return [numericValue.toFixed(3), "PSI"];
+              }}
               />
               <ReferenceLine x={PSI_STABLE} stroke="#EAB839" strokeDasharray="4 4" />
               <ReferenceLine x={PSI_WARNING} stroke="#d62728" strokeDasharray="4 4" />

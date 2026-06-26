@@ -117,7 +117,12 @@ export default function FeatureHistogram({ selected, onSelect }: Props) {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="bin" tick={{ fontSize: 9 }} angle={-30} textAnchor="end" height={60} />
                 <YAxis label={{ value: "% of samples", angle: -90, position: "insideLeft", fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => `${v}%`} />
+                <Tooltip 
+                  formatter={(v: number | string | undefined | readonly (string | number)[]) => {
+                    const safeVal = Array.isArray(v) ? v[0] : v;
+                    return `${safeVal ?? 0}%`;
+                  }} 
+                />
                 <Legend />
                 <Bar dataKey="training" fill="#1f77b4" fillOpacity={0.55} name="Training" />
                 <Bar dataKey="production" fill="#ff7f0e" fillOpacity={0.55} name="Production (recent)" />
