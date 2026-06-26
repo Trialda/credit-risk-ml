@@ -41,3 +41,8 @@ frontend/.env.local
 .DS_Store
 Thumbs.db
 observability/grafana/provisioning/alerting/contact_points.yml 
+
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/*.tfplan
+infra/terraform/terraform.tfvars

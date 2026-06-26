@@ -1,0 +1,2 @@
+github_repo      = "your-github-username/credit-risk-ml"
+allowed_ssh_cidr = "YOUR_IP_ADDRESS/32"
