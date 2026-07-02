@@ -2,7 +2,8 @@
 
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.project_name}-backend"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "MUTABLE" #checkov:skip=CKV_AWS_51:Mutable tags used intentionally for latest-tag CI/CD pattern in this demo
+  #checkov:skip=CKV_AWS_136:Default AWS-managed encryption (AES-256) sufficient for this demo
 
   image_scanning_configuration {
     scan_on_push = true
@@ -11,7 +12,8 @@ resource "aws_ecr_repository" "backend" {
 
 resource "aws_ecr_repository" "frontend" {
   name                 = "${var.project_name}-frontend"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "MUTABLE" #checkov:skip=CKV_AWS_51:Mutable tags used intentionally for latest-tag CI/CD pattern in this demo
+  #checkov:skip=CKV_AWS_136:Default AWS-managed encryption (AES-256) sufficient for this demo
 
   image_scanning_configuration {
     scan_on_push = true
@@ -73,7 +75,7 @@ resource "aws_security_group" "app" {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"] #checkov:skip=CKV_AWS_260:Public HTTP access is intentional for this web application
   }
 
   ingress {
@@ -89,7 +91,7 @@ resource "aws_security_group" "app" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"] #checkov:skip=CKV_AWS_382:Unrestricted egress required for image pulls and OS updates
   }
 }
 
@@ -120,10 +122,17 @@ resource "aws_iam_instance_profile" "ec2_instance" {
 }
 
 resource "aws_instance" "app" {
+  #checkov:skip=CKV_AWS_126:Detailed monitoring adds only cost with no value for this demo
+  #checkov:skip=CKV_AWS_135:t3.small has EBS optimization enabled by default; this check is a false positive for t3 instance types
   ami                    = data.aws_ami.amazon_linux.id
   instance_type           = var.instance_type
   vpc_security_group_ids  = [aws_security_group.app.id]
   iam_instance_profile    = aws_iam_instance_profile.ec2_instance.name
+
+  metadata_options {
+    http_tokens   = "required"
+    http_endpoint = "enabled"
+  }
 
   root_block_device {
     volume_size = 20
