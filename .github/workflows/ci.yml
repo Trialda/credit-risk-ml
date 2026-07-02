@@ -83,3 +83,18 @@ jobs:
           tags: ${{ steps.ecr-login.outputs.registry }}/credit-risk-ml-frontend:latest
           build-args: |
             VITE_API_KEY=
+
+  checkov:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra/terraform
+          framework: terraform
+          soft_fail: true
+          output_format: cli
